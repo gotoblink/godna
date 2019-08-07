@@ -1,3 +1,5 @@
+github.com/golangq/q v1.0.7 h1:fdyS9pAWgiMPYUM9+Hod8Fn4RyQybBaMph8X9pqNeM0=
+github.com/golangq/q v1.0.7/go.mod h1:CoP6YfrEL11Sn5miXToGryX6wvIJzRC4TOU2X+VFZJQ=
 github.com/hashicorp/errwrap v1.0.0 h1:hLrqtEDnRye3+sgx6z4qVLNuviH3MR5aQ0ykNJa/UYA=
 github.com/hashicorp/errwrap v1.0.0/go.mod h1:YH+1FKiLXxHSkmPseP+kNlulaMuP3n2brvKWEqk/Jc4=
 github.com/hashicorp/go-multierror v1.0.0 h1:iVjPR7a6H0tWELX5NxNe7bYopibicUzc7uPribsnS6o=
