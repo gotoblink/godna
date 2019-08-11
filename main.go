@@ -622,16 +622,20 @@ func gitModAddDirty(wordDir string, dirn string, major int64) (dirty bool, found
 				}
 				cmd := exec.Command("git")
 				cmd.Dir = wordDir
-				args := []string{
-					"add",
-					fname,
+				args := []string{}
+				if line[1] != ' ' {
+					args = []string{
+						"add",
+						fname,
+					}
+				} else {
+					continue
 				}
 				cmd.Args = append(cmd.Args, args...)
 				// fmt.Printf("git %+v\n", cmd.Args)
 				out, err := cmd.CombinedOutput()
 				if err != nil {
-					fmt.Printf(" err:%v out\n`%v`\n", err, string(out))
-					log.Warningf(" err:%v out\n`%v`\n", err, string(out))
+					log.Warningf("\nerr:%v\ncmd%v\n out\n`%v`\n", cmd, err, string(out))
 					return err
 				}
 			} else {
