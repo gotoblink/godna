@@ -1,0 +1,27 @@
+project_name: godna
+release:
+  github:
+    owner: wxio
+    name: godna
+  name_template: '{{.Tag}}'
+builds:
+- goos:
+  - linux
+  - windows
+  - darwin
+  goarch:
+  - amd64
+  - "386"
+  ignore:
+  - goos: linux
+    goarch: "386"
+  - goos: darwin
+    goarch: "386"
+  main: .
+  ldflags: -X main.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.Date}}
+  binary: godna
+snapshot:
+  name_template: SNAPSHOT-{{ .Commit }}
+archives:
+  -
+    format: binary
