@@ -68,7 +68,7 @@ type regen struct {
 	OutputDir string   `help:"output directory eg ."`
 	Pass      []string `help:"common separated list of commands to run. Possible commands are protoc,modinit,modrequire,modreplace,modtidy,gittag (default [\"protoc,modinit,modrequire,modreplace\", \"modtidy\", \"gittag\"])"`
 	Plugin    []string `help:"Name and path of a pluging eg protoc-gen-NAME=path/to/mybinary. Much also specify --generator, does not imply it  is present"`
-	Generator []string `help:"Name and params a genertor. See defaut for an example. Turns into '--NAME_out=PARMAS:OUTPUT_DIR'. (default 'go=paths=source_relative')"`
+	Generator []string `help:"Name and params a generator. Form name[=key=value[,[key=value]]*]?[:out_dir]?. See defaut for an example. Turns into '--NAME_out=PARMAS:OUTPUT_DIR'. (default 'go=paths=source_relative')"`
 	//
 	packages     map[string]*pkage
 	pkgWalkOrder []string
@@ -81,6 +81,7 @@ type regen struct {
 type generator struct {
 	name   string
 	params []keyval
+	outdir string
 }
 
 type keyval struct {
@@ -146,9 +147,14 @@ func (in *regen) Run() error {
 	}
 	for _, ges := range in.Generator {
 		name := ges
+		outdir := ""
+		if i := strings.LastIndex(ges, ":"); i > -1 {
+			outdir = ges[i+1:]
+			ges = ges[:i]
+		}
 		if i := strings.Index(ges, "="); i > -1 {
 			name = ges[:i]
-			gen := generator{name: name}
+			gen := generator{name: name, outdir: outdir}
 			paramstr := ges[i+1:]
 			params := strings.Split(paramstr, ",")
 			for _, param := range params {
@@ -160,7 +166,7 @@ func (in *regen) Run() error {
 			}
 			in.generators = append(in.generators, gen)
 		} else {
-			gen := generator{name: name}
+			gen := generator{name: name, outdir: outdir}
 			in.generators = append(in.generators, gen)
 		}
 	}
@@ -376,7 +382,11 @@ func (in *regen) protoc(pkg string) ([]byte, string, error) {
 				arg += kv.key + "=" + kv.value
 			}
 		}
-		arg += ":" + in.OutputDir
+		if gen.outdir != "" {
+			arg += ":" + filepath.Join(in.OutputDir, gen.outdir)
+		} else {
+			arg += ":" + in.OutputDir
+		}
 		args = append(args, arg)
 	}
 	// args := []string{"--go_out=plugins=micro,paths=source_relative:" + oAbs}
