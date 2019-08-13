@@ -67,12 +67,25 @@ type regen struct {
 	SrcDir    string   `help:"source directory eg ../microsoft-dna/store/project - note not included as a -I"`
 	OutputDir string   `help:"output directory eg ."`
 	Pass      []string `help:"common separated list of commands to run. Possible commands are protoc,modinit,modrequire,modreplace,modtidy,gittag (default [\"protoc,modinit,modrequire,modreplace\", \"modtidy\", \"gittag\"])"`
+	Plugin    []string `help:"Name and path of a pluging eg protoc-gen-NAME=path/to/mybinary. Much also specify --generator, does not imply it  is present"`
+	Generator []string `help:"Name and params a genertor. See defaut for an example. Turns into '--NAME_out=PARMAS:OUTPUT_DIR'. (default 'go=paths=source_relative')"`
 	//
 	packages     map[string]*pkage
 	pkgWalkOrder []string
 	sems         map[string]map[int64]Semvers
 	longestStr   int
 	localName    map[string]struct{}
+	generators   []generator
+}
+
+type generator struct {
+	name   string
+	params []keyval
+}
+
+type keyval struct {
+	key   string
+	value string
 }
 
 type pkage struct {
@@ -110,6 +123,29 @@ func (in *regen) Run() error {
 			"protoc,modinit,modrequire,modreplace",
 			"modtidy",
 			"gittag",
+		}
+	}
+	if len(in.Generator) == 0 {
+		in.Generator = []string{"go=paths=source_relative"}
+	}
+	for _, ges := range in.Generator {
+		name := ges
+		if i := strings.Index(ges, "="); i > -1 {
+			name = ges[:i]
+			gen := generator{name: name}
+			paramstr := ges[i+1:]
+			params := strings.Split(paramstr, ",")
+			for _, param := range params {
+				kv := strings.Split(param, "=")
+				if len(kv) != 2 {
+					fmt.Printf("Invalid generator, much be of the form 'name[=[key=value][,key=value]*]?' given '%s'", ges)
+				}
+				gen.params = append(gen.params, keyval{kv[0], kv[1]})
+			}
+			in.generators = append(in.generators, gen)
+		} else {
+			gen := generator{name: name}
+			in.generators = append(in.generators, gen)
 		}
 	}
 	if err := filepath.Walk(in.SrcDir, in.walkFnSrcDir); err != nil {
@@ -314,8 +350,23 @@ func (in *regen) goModReplacements(pkg string) {
 // protoc returns combined output from stdout and stderr.
 func (in *regen) protoc(pkg string) ([]byte, string, error) {
 	cmd := exec.Command("protoc")
+	args := []string{}
 	oAbs, _ := filepath.Abs(in.OutputDir)
-	args := []string{"--go_out=plugins=micro,paths=source_relative:" + oAbs}
+	for _, gen := range in.generators {
+		arg := "--" + gen.name + "_out"
+		if len(gen.params) > 0 {
+			arg += "="
+			for i, kv := range gen.params {
+				if i != 0 {
+					arg += ","
+				}
+				arg += kv.key + "=" + kv.value
+			}
+		}
+		arg += ":" + oAbs
+		args = append(args, arg)
+	}
+	// args := []string{"--go_out=plugins=micro,paths=source_relative:" + oAbs}
 	src, _ := filepath.Abs(in.SrcDir)
 	cmd.Dir = src
 	// args = append(args, "-I"+srcDir)
