@@ -99,7 +99,23 @@ type pkage struct {
 }
 
 func (in *regen) Run() error {
-	fmt.Printf("%+v\n", in)
+	var err error
+	in.SrcDir, err = filepath.Abs(in.SrcDir)
+	if err != nil {
+		return err
+	}
+	for i, inc := range in.Includes {
+		in.Includes[i], err = filepath.Abs(inc)
+		if err != nil {
+			return err
+		}
+	}
+	in.OutputDir, err = filepath.Abs(in.OutputDir)
+	if err != nil {
+		return err
+	}
+	os.Chdir(in.OutputDir)
+	// fmt.Printf("%+v\n", in)
 	in.packages = make(map[string]*pkage)
 	in.localName = make(map[string]struct{})
 	if in.HostOwner == "" {
@@ -220,8 +236,7 @@ func (in *regen) pkgDir(pkg string) {
 	tpkg.dirn = dirn
 	{ //
 		cmd := exec.Command("git")
-		src, _ := filepath.Abs(in.SrcDir)
-		cmd.Dir = filepath.Join(src, dirn)
+		cmd.Dir = filepath.Join(in.SrcDir, dirn)
 		args := []string{"remote", "get-url", "origin"}
 		cmd.Args = append(cmd.Args, args...)
 		out, err := cmd.CombinedOutput()
@@ -233,8 +248,7 @@ func (in *regen) pkgDir(pkg string) {
 	} //
 	{ //
 		cmd := exec.Command("git")
-		src, _ := filepath.Abs(in.SrcDir)
-		cmd.Dir = filepath.Join(src, dirn)
+		cmd.Dir = filepath.Join(in.SrcDir, dirn)
 		args := []string{"describe", "--always", "--dirty"}
 		cmd.Args = append(cmd.Args, args...)
 		out, err := cmd.CombinedOutput()
@@ -351,7 +365,6 @@ func (in *regen) goModReplacements(pkg string) {
 func (in *regen) protoc(pkg string) ([]byte, string, error) {
 	cmd := exec.Command("protoc")
 	args := []string{}
-	oAbs, _ := filepath.Abs(in.OutputDir)
 	for _, gen := range in.generators {
 		arg := "--" + gen.name + "_out"
 		if len(gen.params) > 0 {
@@ -363,16 +376,14 @@ func (in *regen) protoc(pkg string) ([]byte, string, error) {
 				arg += kv.key + "=" + kv.value
 			}
 		}
-		arg += ":" + oAbs
+		arg += ":" + in.OutputDir
 		args = append(args, arg)
 	}
 	// args := []string{"--go_out=plugins=micro,paths=source_relative:" + oAbs}
-	src, _ := filepath.Abs(in.SrcDir)
-	cmd.Dir = src
+	cmd.Dir = in.SrcDir
 	// args = append(args, "-I"+srcDir)
 	for _, inc := range in.Includes {
-		in, _ := filepath.Abs(inc)
-		args = append(args, "-I"+in)
+		args = append(args, "-I"+inc)
 	}
 	args = append(args, "-I.")
 	args = append(args, in.packages[pkg].files...)
