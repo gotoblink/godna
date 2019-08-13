@@ -383,7 +383,10 @@ func (in *regen) protoc(pkg string) ([]byte, string, error) {
 			}
 		}
 		if gen.outdir != "" {
-			arg += ":" + filepath.Join(in.OutputDir, gen.outdir)
+			out := filepath.Join(in.OutputDir, gen.outdir)
+			err := os.MkdirAll(out, os.ModePerm)
+			return nil, "", err
+			arg += ":" + out
 		} else {
 			arg += ":" + in.OutputDir
 		}
