@@ -66,7 +66,7 @@ type regen struct {
 	Require   []string `help:"list of go mod edit -require= eg [ 'github.com/golangq/q@v1.0.7' ]"`
 	SrcDir    string   `help:"source directory eg ../microsoft-dna/store/project - note not included as a -I"`
 	OutputDir string   `help:"output directory eg ."`
-	Pass      []string `help:"common separated list of commands to run. Possible commands are protoc,modinit,modrequire,modreplace,modtidy,gittag (default [\"protoc,modinit,modrequire,modreplace\", \"modtidy\", \"gittag\"])"`
+	Pass      []string `help:"common separated list of commands to run. Possible commands are protoc,modinit,modrequire,modreplace,modtidy,gittag (default [\"protoc,modinit,modrequire,modreplace\", \"modtidy\", \"gittag\", \"modrequirelocal\"])"`
 	Plugin    []string `help:"Name and path of a pluging eg protoc-gen-NAME=path/to/mybinary. Much also specify --generator, does not imply it  is present"`
 	Generator []string `help:"Name and params a generator. Form name[=key=value[,[key=value]]*]?[:out_dir]?. See defaut for an example. Turns into '--NAME_out=PARMAS:OUTPUT_DIR'. (default 'go=paths=source_relative')"`
 	//
@@ -74,12 +74,23 @@ type regen struct {
 	dir2pkg      map[string]*pkage
 	pkgWalkOrder []string
 	sems         map[string]map[int64]Semvers
-	longestStr   int
+	// taglead/vX
+	nextsems   map[string]Semver
+	longestStr int
 	// localName    map[string]struct{}
-	generators []generator
-	relOutDir  map[string]struct{}
+	generators    []generator
+	relOutDir     map[string]struct{}
+	dirtyMods     []*dirtyMod
+	taglead2dirty map[string]*dirtyMod
 }
 
+type dirtyMod struct {
+	pkg        *pkage
+	outDir     string
+	workDir    string
+	nextTag    Semver
+	tobe_added []string
+}
 type generator struct {
 	name   string
 	params []keyval
@@ -126,6 +137,7 @@ func (in *regen) Run() error {
 	// fmt.Printf("%+v\n", in)
 	in.packages = make(map[string]*pkage)
 	in.dir2pkg = make(map[string]*pkage)
+	in.taglead2dirty = map[string]*dirtyMod{}
 	// in.localName = make(map[string]struct{})
 	in.relOutDir = make(map[string]struct{})
 	if in.HostOwner == "" {
@@ -137,18 +149,24 @@ func (in *regen) Run() error {
 		os.Exit(1)
 	}
 	pkgExecs := map[string]pkgExec{
-		"protoc":     in.protoc,
-		"modinit":    in.modinit,
-		"modrequire": in.modrequire,
-		"modreplace": in.modreplace,
-		"modtidy":    in.modtidy,
-		"gittag":     in.gittag,
+		"protoc":          in.protoc,
+		"modinit":         in.modinit,
+		"modrequire":      in.modrequire,
+		"modreplace":      in.modreplace,
+		"modtidy":         in.modtidy,
+		"gitdirty":        in.git_dirty,
+		"gitnexttag":      in.git_nexttag,
+		"modrequirelocal": in.modrequirelocal,
+		"gitcommit":       in.git_commit,
+		"gittag":          in.git_tag,
 	}
 	if len(in.Pass) == 0 {
 		in.Pass = []string{
 			"protoc,modinit,modrequire,modreplace",
 			"modtidy",
-			"gittag",
+			// "gittag",
+			"nexttag",
+			"modrequirelocal",
 		}
 	}
 	if len(in.Generator) == 0 {
@@ -527,6 +545,230 @@ func (in *regen) modtidy(pkg string) ([]byte, string, error) {
 	return nil, "tidied", nil
 }
 
+func (in *regen) git_dirty(pkg string) ([]byte, string, error) {
+	tp := in.packages[pkg]
+	majorVer := pkgModVersion(tp.dirn)
+	if majorVer == -1 {
+		return nil, "skipped", nil
+	}
+	for outDir, _ := range in.relOutDir {
+		dir := filepath.Join(in.OutputDir, outDir, tp.dirn)
+		if _, err := os.Open(dir); err != nil {
+			continue
+		}
+		wordDir := filepath.Join(in.OutputDir, outDir, tp.dirn)
+		walkFn := func(path string, info os.FileInfo, err error) error {
+			if err != nil {
+				log.Warning(err)
+				return err
+			}
+			mma := pkgModVersion(tp.dirn)
+			if mma == -1 || mma != majorVer {
+				return filepath.SkipDir
+			}
+			if !info.IsDir() {
+				return nil
+			}
+			cmdSt := exec.Command("git")
+			cmdSt.Dir = wordDir
+			args := []string{"status", "--porcelain", "."}
+			cmdSt.Args = append(cmdSt.Args, args...)
+			out, err := cmdSt.CombinedOutput()
+			if err != nil {
+				log.Warning(err)
+				return err
+			}
+			//
+			scan := bufio.NewScanner(bytes.NewBuffer(out))
+			dmod := dirtyMod{
+				pkg:     tp,
+				outDir:  outDir,
+				workDir: wordDir,
+			}
+			for scan.Scan() {
+				line := scan.Text()
+				if len(line) > 3 {
+					fname := line[3:]
+					if line[0] == 'R' {
+						fname = fname[strings.Index(fname, " -> ")+4:]
+					}
+					fname = fname[len(outDir)+1+len(tp.dirn)+1:]
+					if ignoreGitStatus.MatchString(fname) {
+						continue
+					}
+					if line[1] != ' ' {
+						dmod.tobe_added = append(dmod.tobe_added, fname)
+					} else {
+						continue
+					}
+				} else {
+					q.Q(line)
+					log.Warning("3?")
+				}
+			}
+			if len(dmod.tobe_added) != 0 {
+				in.dirtyMods = append(in.dirtyMods, &dmod)
+				in.taglead2dirty[taglead(tp, outDir)] = &dmod
+			}
+			return nil
+		}
+		if err := filepath.Walk(wordDir, walkFn); err != nil {
+			log.Error(err)
+			os.Exit(1)
+		}
+	}
+	return nil, "", nil
+}
+
+func (in *regen) git_nexttag(pkg string) ([]byte, string, error) {
+	tp := in.packages[pkg]
+	majorVer := pkgModVersion(tp.dirn)
+	if majorVer == -1 {
+		return nil, "skipped", nil
+	}
+	for outDir, _ := range in.relOutDir {
+		tagLead := taglead(tp, outDir)
+		tdty, ex := in.taglead2dirty[tagLead]
+		if !ex {
+			continue
+		}
+		// sems map[string]map[int64]Semvers
+		sems := in.sems[tagLead][majorVer]
+		sort.Sort(sems)
+		sem := Semver{Major: majorVer}
+		if len(sems) == 0 {
+			// sem.Minor = 0
+		} else {
+			// TODO proto check for consistency
+			sem = sems[0]
+			sem.Minor++
+			sem.Patch = 0
+		}
+		tdty.nextTag = sem
+	}
+	return nil, "", nil
+}
+
+func (in *regen) modrequirelocal(pkg string) ([]byte, string, error) {
+	thisp := in.packages[pkg]
+	majorVer := pkgModVersion(thisp.dirn)
+	if majorVer == -1 {
+		return nil, "skipped", nil
+	}
+	imports := thisp.collect(map[string]struct{}{})
+	touch := 0
+	for outDir, _ := range in.relOutDir {
+		if _, err := os.Open(filepath.Join(in.OutputDir, outDir, thisp.dirn)); err != nil {
+			continue
+		}
+		for _, thatp := range imports {
+			that_majorVer := pkgModVersion(thatp.dirn)
+			if that_majorVer == -1 {
+				log.Warningf("dep has no version %v", thatp)
+				return nil, "", fmt.Errorf("dep has no version %v", thatp)
+			}
+			that_tagLead := taglead(thatp, outDir)
+			tdty, ex := in.taglead2dirty[that_tagLead]
+			if !ex {
+				continue
+			}
+			cmd := exec.Command("go")
+			cmd.Dir = filepath.Join(in.OutputDir, outDir, thisp.dirn)
+			args := []string{
+				"mod",
+				"edit",
+				"-require=" + thatp.gopkg + "@" + tdty.nextTag.String(),
+			}
+			cmd.Args = append(cmd.Args, args...)
+			// fmt.Printf("go mod edit %+v\n", cmd.Args)
+			if out, err := cmd.CombinedOutput(); err != nil {
+				return out, "error", err
+			}
+			touch++
+		}
+	}
+	return nil, fmt.Sprintf("required-%d", touch), nil
+}
+
+func (in *regen) git_commit(pkg string) ([]byte, string, error) {
+	thisp := in.packages[pkg]
+	majorVer := pkgModVersion(thisp.dirn)
+	if majorVer == -1 {
+		return nil, "skipped", nil
+	}
+	touch := 0
+	for outDir, _ := range in.relOutDir {
+		if _, err := os.Open(filepath.Join(in.OutputDir, outDir, thisp.dirn)); err != nil {
+			continue
+		}
+		tdty, ex := in.taglead2dirty[taglead(thisp, outDir)]
+		if !ex {
+			continue
+		}
+		for _, fname := range tdty.tobe_added {
+			cmd := exec.Command("git")
+			cmd.Dir = tdty.workDir
+			args := []string{"add", fname}
+			cmd.Args = append(cmd.Args, args...)
+			// fmt.Printf("git %+v\n", cmd.Args)
+			out, err := cmd.CombinedOutput()
+			if err != nil {
+				log.Warningf("ERROR:\n  cwd:%v\n  cmd:%v\n  out:%v   \n   err:%v\n", cmd.Dir, cmd.Args, string(out), err)
+				return nil, "", err
+			}
+		}
+		cmd := exec.Command("git")
+		cmd.Dir = tdty.workDir
+		args := []string{"commit", "-m", thisp.source + " (" + thisp.gitDescribe + ")"}
+		cmd.Args = append(cmd.Args, args...)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			log.Warningf("ERROR:\n  cwd:%v\n  cmd:%v\n  out:%v   \n   err:%v\n", cmd.Dir, cmd.Args, string(out), err)
+			return out, "error", err
+		}
+		touch++
+	}
+	return nil, fmt.Sprintf("commits-%d", touch), nil
+}
+
+func (in *regen) git_tag(pkg string) ([]byte, string, error) {
+	thisp := in.packages[pkg]
+	majorVer := pkgModVersion(thisp.dirn)
+	if majorVer == -1 {
+		return nil, "skipped", nil
+	}
+	touch := 0
+	for outDir, _ := range in.relOutDir {
+		if _, err := os.Open(filepath.Join(in.OutputDir, outDir, thisp.dirn)); err != nil {
+			continue
+		}
+		tdty, ex := in.taglead2dirty[taglead(thisp, outDir)]
+		if !ex {
+			continue
+		}
+		tag := fmt.Sprintf("%s/%s", taglead(thisp, outDir), tdty.nextTag)
+		cmd := exec.Command("git")
+		args := []string{"tag", tag}
+		cmd.Args = append(cmd.Args, args...)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			log.Warningf("ERROR:\n  cwd:%v\n  cmd:%v\n  out:%v   \n   err:%v\n", cmd.Dir, cmd.Args, string(out), err)
+			return out, "error", err
+		}
+		touch++
+	}
+	return nil, fmt.Sprintf("commits-%d", touch), nil
+}
+
+func taglead(tp *pkage, outDir string) string {
+	ds := strings.Split(tp.dirn, "/")
+	tagLead := outDir + "/" + ds[0]
+	if outDir == "." {
+		tagLead = ds[0]
+	}
+	return tagLead
+}
+
 func (in *regen) gittag(pkg string) ([]byte, string, error) {
 	tp := in.packages[pkg]
 	majorVer := pkgModVersion(tp.dirn)
@@ -586,6 +828,164 @@ func (in *regen) gittag(pkg string) ([]byte, string, error) {
 		q.Q("  next semver for %s %s\n", tp.dirn, tag)
 	}
 	return nil, fmt.Sprintf("commit&tagged-%d", tagged), nil
+}
+
+func (in *regen) modrequirelocal3(pkg string) ([]byte, string, error) {
+	thisp := in.packages[pkg]
+	this_majorVer := pkgModVersion(thisp.dirn)
+	if this_majorVer == -1 {
+		return nil, "skipped", nil
+	}
+	imports := thisp.collect(map[string]struct{}{})
+	for out, _ := range in.relOutDir {
+		dir := filepath.Join(in.OutputDir, out, thisp.dirn)
+		if _, err := os.Open(dir); err != nil {
+			continue
+		}
+		for _, thatp := range imports {
+			ds := strings.Split(thatp.dirn, "/")
+			tagLead := out + "/" + ds[0]
+			if out == "." {
+				tagLead = ds[0]
+			}
+			that_majorVer := pkgModVersion(thatp.dirn)
+			if that_majorVer == -1 {
+				log.Warningf("dep has no version %v", thatp)
+				return nil, "", fmt.Errorf("dep has no version %v", thatp)
+			}
+			sem, ex := in.nextsems[fmt.Sprintf("%s/v%d", tagLead, that_majorVer)]
+			if !ex {
+				sems := in.sems[tagLead][that_majorVer]
+				if len(sems) == 0 {
+					log.Warningf("dep has no tag %s/%d", tagLead, that_majorVer)
+					return nil, "", fmt.Errorf("no tag %s/%d", tagLead, that_majorVer)
+				}
+				sort.Sort(sems)
+				sem = sems[0]
+			}
+			cmd := exec.Command("go")
+			cmd.Dir = filepath.Join(in.OutputDir, out, thisp.dirn)
+			args := []string{
+				"mod",
+				"edit",
+				"-require=" + thatp.gopkg + "@" + sem.String(),
+			}
+			cmd.Args = append(cmd.Args, args...)
+			// fmt.Printf("go mod edit %+v\n", cmd.Args)
+			if out, err := cmd.CombinedOutput(); err != nil {
+				return out, "error", err
+			}
+		}
+	}
+	return nil, fmt.Sprintf("required-%d", len(in.Require)), nil
+}
+
+func (in *regen) gitcommittag(pkg string) ([]byte, string, error) {
+	tp := in.packages[pkg]
+	majorVer := pkgModVersion(tp.dirn)
+	if majorVer == -1 {
+		return nil, "skipped", nil
+	}
+	tagged := 0
+	for out, _ := range in.relOutDir {
+		dir := filepath.Join(in.OutputDir, out, tp.dirn)
+		if _, err := os.Open(dir); err != nil {
+			continue
+		}
+		dirty, found := tp.gitModAddDirty(in, out, majorVer)
+		if !dirty {
+			return nil, "clean", nil
+		}
+		q.Q("  dirty - major ver %v %v\n", majorVer, found)
+		{ //
+			cmd := exec.Command("git")
+			args := []string{"commit", "-m", tp.source + " (" + tp.gitDescribe + ")"}
+			cmd.Args = append(cmd.Args, args...)
+			out, err := cmd.CombinedOutput()
+			if err != nil {
+				log.Warningf("ERROR:\n  cwd:%v\n  cmd:%v\n  out:%v   \n   err:%v\n", cmd.Dir, cmd.Args, string(out), err)
+				return out, "error", err
+			}
+		} //
+		ds := strings.Split(tp.dirn, "/")
+		tagLead := out + "/" + ds[0]
+		if out == "." {
+			tagLead = ds[0]
+		}
+		// sems map[string]map[int64]Semvers
+		sems := in.sems[tagLead][majorVer]
+		sort.Sort(sems)
+		sem := Semver{Major: majorVer}
+		if len(sems) == 0 {
+			// sem.Minor = 0
+		} else {
+			// TODO proto check for consistency
+			sem = sems[0]
+			sem.Minor++
+			sem.Patch = 0
+		}
+		tag := fmt.Sprintf("%s/%s", tagLead, sem)
+		{ //
+			cmd := exec.Command("git")
+			args := []string{"tag", tag}
+			cmd.Args = append(cmd.Args, args...)
+			out, err := cmd.CombinedOutput()
+			if err != nil {
+				log.Warningf("ERROR:\n  cwd:%v\n  cmd:%v\n  out:%v   \n   err:%v\n", cmd.Dir, cmd.Args, string(out), err)
+				return out, "error", err
+			}
+		} //
+		tagged++
+		q.Q("  next semver for %s %s\n", tp.dirn, tag)
+	}
+	return nil, fmt.Sprintf("commit&tagged-%d", tagged), nil
+}
+
+func (in *regen) modrequirelocal2(pkg string) ([]byte, string, error) {
+	thisp := in.packages[pkg]
+	this_majorVer := pkgModVersion(thisp.dirn)
+	if this_majorVer == -1 {
+		return nil, "skipped", nil
+	}
+	imports := thisp.collect(map[string]struct{}{})
+	newSems := gitGetTagSemver()
+	for out, _ := range in.relOutDir {
+		dir := filepath.Join(in.OutputDir, out, thisp.dirn)
+		if _, err := os.Open(dir); err != nil {
+			continue
+		}
+		for _, thatp := range imports {
+			ds := strings.Split(thatp.dirn, "/")
+			tagLead := out + "/" + ds[0]
+			if out == "." {
+				tagLead = ds[0]
+			}
+			that_majorVer := pkgModVersion(thatp.dirn)
+			if that_majorVer == -1 {
+				log.Warningf("dep has no version %v", thatp)
+				return nil, "", fmt.Errorf("dep has no version %v", thatp)
+			}
+			sems := newSems[tagLead][that_majorVer]
+			if len(sems) == 0 {
+				log.Warningf("dep has no tag %s/%d", tagLead, that_majorVer)
+				return nil, "", fmt.Errorf("no tag %s/%d", tagLead, that_majorVer)
+			}
+			sort.Sort(sems)
+			cmd := exec.Command("go")
+			cmd.Dir = filepath.Join(in.OutputDir, out, thisp.dirn)
+			args := []string{
+				"mod",
+				"edit",
+				"-require=" + thatp.gopkg + "@" + sems[0].String(),
+			}
+			cmd.Args = append(cmd.Args, args...)
+			// fmt.Printf("go mod edit %+v\n", cmd.Args)
+			if out, err := cmd.CombinedOutput(); err != nil {
+				return out, "error", err
+			}
+		}
+	}
+	return nil, fmt.Sprintf("required-%d", len(in.Require)), nil
 }
 
 var vxMod = regexp.MustCompile(`^[^/]+/v(\d+)$`)
