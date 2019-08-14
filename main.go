@@ -71,11 +71,13 @@ type regen struct {
 	Generator []string `help:"Name and params a generator. Form name[=key=value[,[key=value]]*]?[:out_dir]?. See defaut for an example. Turns into '--NAME_out=PARMAS:OUTPUT_DIR'. (default 'go=paths=source_relative')"`
 	//
 	packages     map[string]*pkage
+	dir2pkg      map[string]*pkage
 	pkgWalkOrder []string
 	sems         map[string]map[int64]Semvers
 	longestStr   int
-	localName    map[string]struct{}
-	generators   []generator
+	// localName    map[string]struct{}
+	generators []generator
+	relOutDir  map[string]struct{}
 }
 
 type generator struct {
@@ -90,13 +92,18 @@ type keyval struct {
 }
 
 type pkage struct {
-	files            []string
-	replacements     map[string]struct{}
-	dirn             string
-	protoImportMatch [][][]byte
-	mymod            string
-	gitDescribe      string
-	source           string
+	gopkg        string
+	files        []file
+	replacements map[string]*pkage
+	dirn         string
+	// mymod        string
+	gitDescribe string
+	source      string
+}
+
+type file struct {
+	name        string
+	protoImport []string
 }
 
 func (in *regen) Run() error {
@@ -118,7 +125,9 @@ func (in *regen) Run() error {
 	os.Chdir(in.OutputDir)
 	// fmt.Printf("%+v\n", in)
 	in.packages = make(map[string]*pkage)
-	in.localName = make(map[string]struct{})
+	in.dir2pkg = make(map[string]*pkage)
+	// in.localName = make(map[string]struct{})
+	in.relOutDir = make(map[string]struct{})
 	if in.HostOwner == "" {
 		log.Error("--host_owner not set")
 		os.Exit(1)
@@ -129,11 +138,11 @@ func (in *regen) Run() error {
 	}
 	pkgExecs := map[string]pkgExec{
 		"protoc":     in.protoc,
-		"modinit":    in.gomod,
-		"modrequire": in.modRequire,
-		"modreplace": in.gomodReplace,
-		"modtidy":    in.gomodTidy,
-		"gittag":     in.gitTag,
+		"modinit":    in.modinit,
+		"modrequire": in.modrequire,
+		"modreplace": in.modreplace,
+		"modtidy":    in.modtidy,
+		"gittag":     in.gittag,
 	}
 	if len(in.Pass) == 0 {
 		in.Pass = []string{
@@ -151,6 +160,9 @@ func (in *regen) Run() error {
 		if i := strings.LastIndex(ges, ":"); i > -1 {
 			outdir = ges[i+1:]
 			ges = ges[:i]
+			in.relOutDir[outdir] = struct{}{}
+		} else {
+			in.relOutDir["."] = struct{}{}
 		}
 		if i := strings.Index(ges, "="); i > -1 {
 			name = ges[:i]
@@ -170,14 +182,25 @@ func (in *regen) Run() error {
 			in.generators = append(in.generators, gen)
 		}
 	}
+	for dir, _ := range in.relOutDir {
+		out := filepath.Join(in.OutputDir, dir)
+		err := os.MkdirAll(out, os.ModePerm)
+		if err != nil {
+			return err
+		}
+	}
 	if err := filepath.Walk(in.SrcDir, in.walkFnSrcDir); err != nil {
 		log.Error(err)
 		os.Exit(1)
 	}
-	q.Q(in.localName)
+	// q.Q(in.localName)
 	for _, pkg := range in.pkgWalkOrder {
 		// in.goModReplacements(pkg)
 		in.pkgDir(pkg)
+	}
+	for _, pkg := range in.pkgWalkOrder {
+		// in.goModReplacements(pkg)
+		in.pkgImports(pkg)
 	}
 	in.sems = gitGetTagSemver()
 	for pi, actions := range in.Pass {
@@ -208,6 +231,9 @@ func (in *regen) Run() error {
 
 type pkgExec func(pkg string) (out []byte, msg string, err error)
 
+var goPkgOptRe = regexp.MustCompile(`(?m)^option go_package = (.*);`)
+var protoImportRe = regexp.MustCompile(`(?m)^import "(.*)/[^/]+.proto";`)
+
 func (in *regen) walkFnSrcDir(path string, info os.FileInfo, err error) error {
 	if err != nil {
 		return err
@@ -218,10 +244,46 @@ func (in *regen) walkFnSrcDir(path string, info os.FileInfo, err error) error {
 	if rel, err := filepath.Rel(in.SrcDir, path); err != nil {
 		return err
 	} else {
-		err = in.goPkg(path, rel)
+		// TODO make sure there are no v2 files in v1 (root) dir
+		// TODO make sure the are no vX in vY directory
+		content, err := ioutil.ReadFile(path)
 		if err != nil {
 			return err
 		}
+		var pkgName string
+		if match := goPkgOptRe.FindSubmatch(content); len(match) > 0 {
+			pn, err := strconv.Unquote(string(match[1]))
+			if err != nil {
+				return err
+			}
+			pkgName = pn
+		}
+		if p := strings.IndexRune(pkgName, ';'); p > 0 {
+			pkgName = pkgName[:p]
+		}
+		if pkgName == "" {
+			return fmt.Errorf("No package in file %s\n", path)
+		}
+		thisPkg, ex := in.packages[pkgName]
+		if !ex {
+			thisPkg = &pkage{
+				gopkg:        pkgName,
+				replacements: make(map[string]*pkage),
+			}
+			in.packages[pkgName] = thisPkg
+			in.pkgWalkOrder = append(in.pkgWalkOrder, pkgName)
+			if len(pkgName) > in.longestStr {
+				in.longestStr = len(pkgName)
+			}
+		}
+		//
+		protoImportMatch := protoImportRe.FindAllSubmatch(content, -1)
+		imps := []string{}
+		for _, m := range protoImportMatch {
+			imps = append(imps, string(m[1]))
+		}
+		fi := file{rel, imps}
+		thisPkg.files = append(thisPkg.files, fi)
 		return nil
 	}
 }
@@ -232,14 +294,15 @@ func (in *regen) pkgDir(pkg string) {
 	dirns := make(map[string]struct{})
 	dirn := ""
 	for _, fn := range fnames {
-		dirns[filepath.Dir(fn)] = struct{}{}
-		dirn = filepath.Dir(fn)
+		dirns[filepath.Dir(fn.name)] = struct{}{}
+		dirn = filepath.Dir(fn.name)
 	}
 	if len(dirns) != 1 {
 		log.Errorf("error files with same go package in more than one dir: %s\n", fnames)
 		os.Exit(1)
 	}
 	tpkg.dirn = dirn
+	in.dir2pkg[dirn] = tpkg
 	{ //
 		cmd := exec.Command("git")
 		cmd.Dir = filepath.Join(in.SrcDir, dirn)
@@ -264,103 +327,25 @@ func (in *regen) pkgDir(pkg string) {
 			tpkg.gitDescribe = strings.TrimSpace(string(out))
 		}
 	} //
-
 }
 
-var goPkgOptRe = regexp.MustCompile(`(?m)^option go_package = (.*);`)
-var protoImportRe = regexp.MustCompile(`(?m)^import "(.*)/[^/]+.proto";`)
-
-// goPkg reports the import path declared in the given file's
-// `go_package` option. If the option is missing, goPkg returns empty string.
-func (in *regen) goPkg(fname string, relpath string) error {
-	if !strings.HasSuffix(fname, ".proto") {
-		return nil
-	}
-	// TODO make sure there are no v2 files in v1 (root) dir
-	// TODO make sure the are no vX in vY directory
-	content, err := ioutil.ReadFile(fname)
-	if err != nil {
-		return err
-	}
-	var pkgName string
-	if match := goPkgOptRe.FindSubmatch(content); len(match) > 0 {
-		pn, err := strconv.Unquote(string(match[1]))
-		if err != nil {
-			return err
-		}
-		pkgName = pn
-	}
-	if p := strings.IndexRune(pkgName, ';'); p > 0 {
-		pkgName = pkgName[:p]
-	}
-	if pkgName == "" {
-		fmt.Printf("No package in file %s\n", fname)
-	}
-	thisPkg, ex := in.packages[pkgName]
-	if !ex {
-		thisPkg = &pkage{
-			replacements: make(map[string]struct{}),
-		}
-		in.packages[pkgName] = thisPkg
-		in.pkgWalkOrder = append(in.pkgWalkOrder, pkgName)
-		if len(pkgName) > in.longestStr {
-			in.longestStr = len(pkgName)
-		}
-	}
-	thisPkg.files = append(thisPkg.files, relpath)
-	//
-	thisPkg.protoImportMatch = protoImportRe.FindAllSubmatch(content, -1)
-	myname := fname[len(in.SrcDir):]
-	if myname[0] == '/' {
-		myname = myname[1:]
-	}
-	thisPkg.mymod = myname[:strings.LastIndex(myname, "/")]
-	in.localName[thisPkg.mymod] = struct{}{}
-	for _, m := range thisPkg.protoImportMatch {
-		for j, n := range m {
-			_, _ = j, n
-			if strings.HasPrefix(string(m[1]), thisPkg.mymod) {
+func (in *regen) pkgImports(pkg string) {
+	tpkg := in.packages[pkg]
+	for _, fn := range tpkg.files {
+		for _, imp := range fn.protoImport {
+			if strings.HasPrefix(imp, tpkg.dirn) {
 				continue
 			}
 			for _, rel := range in.RelImps {
-				if strings.HasPrefix(string(m[1]), rel) {
-					if !strings.Contains(string(m[1]), "/") {
-						thisPkg.replacements[string(m[1])] = struct{}{}
+				if strings.HasPrefix(imp, rel) {
+					if !strings.Contains(imp, "/") {
+						dep := in.dir2pkg[imp]
+						tpkg.replacements[imp] = dep
 					} else {
 					}
 				} else {
 				}
 			}
-		}
-	}
-	return nil
-}
-
-func (in *regen) goModReplacements(pkg string) {
-	tp := in.packages[pkg]
-	q.Q(pkg)
-	for _, m := range tp.protoImportMatch {
-		for j, n := range m {
-			_, _ = j, n
-			if strings.HasPrefix(string(m[1]), tp.mymod) {
-				continue
-			}
-			q.Q(string(m[1]))
-			if _, ex := in.localName[string(m[1])]; ex {
-				q.Q("yes")
-				tp.replacements[string(m[1])] = struct{}{}
-			} else {
-				q.Q("no")
-			}
-			// for _, rel := range in.RelImps {
-			// 	if strings.HasPrefix(string(m[1]), rel) {
-			// 		if !strings.Contains(string(m[1]), "/") {
-			// 			tp.replacements[string(m[1])] = struct{}{}
-			// 		} else {
-			// 		}
-			// 	} else {
-			// 	}
-			// }
 		}
 	}
 }
@@ -384,8 +369,6 @@ func (in *regen) protoc(pkg string) ([]byte, string, error) {
 		}
 		if gen.outdir != "" {
 			out := filepath.Join(in.OutputDir, gen.outdir)
-			err := os.MkdirAll(out, os.ModePerm)
-			return nil, "", err
 			arg += ":" + out
 		} else {
 			arg += ":" + in.OutputDir
@@ -399,164 +382,210 @@ func (in *regen) protoc(pkg string) ([]byte, string, error) {
 		args = append(args, "-I"+inc)
 	}
 	args = append(args, "-I.")
-	args = append(args, in.packages[pkg].files...)
+	for _, fi := range in.packages[pkg].files {
+		args = append(args, fi.name)
+	}
 	cmd.Args = append(cmd.Args, args...)
 	// fmt.Printf("wd: %v, cmd %+v\n", src, cmd.Args)
 	out, err := cmd.CombinedOutput()
 	return out, fmt.Sprintf("files-%d", len(in.packages[pkg].files)), err
 }
 
-func (in *regen) gomod(pkgName string) ([]byte, string, error) {
+func (in *regen) modinit(pkgName string) ([]byte, string, error) {
 	tp := in.packages[pkgName]
 	majorVer := pkgModVersion(tp.dirn)
 	if majorVer == -1 {
 		return nil, "skipped", nil
 	}
-	gm := filepath.Join(in.OutputDir, tp.dirn, "go.mod")
-	if _, err := os.Open(gm); err == nil {
-		return nil, "exists", nil
+	created := 0
+	for out, _ := range in.relOutDir {
+		dir := filepath.Join(in.OutputDir, out, tp.dirn)
+		if _, err := os.Open(dir); err != nil {
+			continue
+		}
+		gm := filepath.Join(in.OutputDir, out, tp.dirn, "go.mod")
+		if _, err := os.Open(gm); err == nil {
+			continue
+		}
+		created++
+		cmd := exec.Command("go")
+		cmd.Dir = filepath.Join(in.OutputDir, out, tp.dirn)
+		args := []string{
+			"mod",
+			"init",
+			pkgName,
+		}
+		cmd.Args = append(cmd.Args, args...)
+		// fmt.Printf("go mod init %+v\n", cmd.Args)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			return out, "error", err
+		}
 	}
-	cmd := exec.Command("go")
-	cmd.Dir = filepath.Join(in.OutputDir, tp.dirn)
-	args := []string{
-		"mod",
-		"init",
-		pkgName,
-	}
-	cmd.Args = append(cmd.Args, args...)
-	// fmt.Printf("go mod init %+v\n", cmd.Args)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return out, "error", err
-	}
-	return nil, "created", nil
+	return nil, fmt.Sprintf("created-%d", created), nil
 }
 
-func (in *regen) collect(pkg string, imports []string) []string {
-	tp := in.packages[pkg]
-	q.Q(pkg)
-	for k, _ := range tp.replacements {
-		q.Q("tp.replacements", k)
-		imports = append(imports, k)
-		imports = in.collect(in.HostOwner+"/"+in.RepoName+"/"+k, imports)
+func (tp pkage) collect(depSet map[string]struct{}) []*pkage {
+	deps := []*pkage{}
+	for _, dep := range tp.replacements {
+		if _, ex := depSet[dep.gopkg]; ex {
+			continue
+		}
+		deps = append(deps, dep)
+		depSet[dep.gopkg] = struct{}{}
+		deps = append(deps, dep.collect(depSet)...)
 	}
-	return imports
+	return deps
 }
 
-func (in *regen) modRequire(pkg string) ([]byte, string, error) {
+func (in *regen) modrequire(pkg string) ([]byte, string, error) {
 	tp := in.packages[pkg]
 	majorVer := pkgModVersion(tp.dirn)
 	if majorVer == -1 {
 		return nil, "skipped", nil
 	}
-	for _, k := range in.Require {
-		cmd := exec.Command("go")
-		cmd.Dir = filepath.Join(in.OutputDir, tp.dirn)
-		args := []string{
-			"mod",
-			"edit",
-			"-require=" + k,
+	for out, _ := range in.relOutDir {
+		dir := filepath.Join(in.OutputDir, out, tp.dirn)
+		if _, err := os.Open(dir); err != nil {
+			continue
 		}
-		cmd.Args = append(cmd.Args, args...)
-		if out, err := cmd.CombinedOutput(); err != nil {
-			return out, "error", err
+		for _, k := range in.Require {
+			cmd := exec.Command("go")
+			cmd.Dir = filepath.Join(in.OutputDir, out, tp.dirn)
+			args := []string{
+				"mod",
+				"edit",
+				"-require=" + k,
+			}
+			cmd.Args = append(cmd.Args, args...)
+			if out, err := cmd.CombinedOutput(); err != nil {
+				return out, "error", err
+			}
 		}
 	}
 	return nil, fmt.Sprintf("required-%d", len(in.Require)), nil
 }
 
-func (in *regen) gomodReplace(pkg string) ([]byte, string, error) {
+func (in *regen) modreplace(pkg string) ([]byte, string, error) {
 	tp := in.packages[pkg]
 	majorVer := pkgModVersion(tp.dirn)
 	if majorVer == -1 {
 		return nil, "skipped", nil
 	}
-	imports := in.collect(pkg, nil)
+	imports := tp.collect(map[string]struct{}{})
 	q.Q("pkg: %s imports: %v\n", pkg, imports)
-	for _, k := range imports {
-		relPath := strings.Repeat("../", strings.Count(tp.dirn, "/")+1)
-		cmd := exec.Command("go")
-		cmd.Dir = filepath.Join(in.OutputDir, tp.dirn)
-		args := []string{
-			"mod",
-			"edit",
-			"-replace=" + in.HostOwner + "/" + in.RepoName + "/" + k + "=" + relPath + k,
+	for out, _ := range in.relOutDir {
+		dir := filepath.Join(in.OutputDir, out, tp.dirn)
+		if _, err := os.Open(dir); err != nil {
+			continue
 		}
-		cmd.Args = append(cmd.Args, args...)
-		// fmt.Printf("go mod edit %+v\n", cmd.Args)
-		if out, err := cmd.CombinedOutput(); err != nil {
-			return out, "error", err
+		for _, k := range imports {
+			relPath := strings.Repeat("../", strings.Count(tp.dirn, "/")+1)
+			cmd := exec.Command("go")
+			cmd.Dir = filepath.Join(in.OutputDir, out, tp.dirn)
+			args := []string{
+				"mod",
+				"edit",
+				"-replace=" + k.gopkg + "=" + relPath + k.dirn,
+			}
+			cmd.Args = append(cmd.Args, args...)
+			// fmt.Printf("go mod edit %+v\n", cmd.Args)
+			if out, err := cmd.CombinedOutput(); err != nil {
+				return out, "error", err
+			}
 		}
 	}
 	return nil, fmt.Sprintf("replaced-%d", len(imports)), nil
 }
 
-func (in *regen) gomodTidy(pkg string) ([]byte, string, error) {
+func (in *regen) modtidy(pkg string) ([]byte, string, error) {
 	tp := in.packages[pkg]
 	majorVer := pkgModVersion(tp.dirn)
 	if majorVer == -1 {
 		return nil, "skipped", nil
 	}
-	cmd := exec.Command("go")
-	cmd.Dir = filepath.Join(in.OutputDir, tp.dirn)
-	args := []string{
-		"mod",
-		"tidy",
-		"-v",
-	}
-	cmd.Args = append(cmd.Args, args...)
-	// fmt.Printf("wd: %s go %+v\n", cmd.Dir, cmd.Args)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return out, "error", err
-	} else {
-		q.Q(string(out))
+	for out, _ := range in.relOutDir {
+		dir := filepath.Join(in.OutputDir, out, tp.dirn)
+		if _, err := os.Open(dir); err != nil {
+			continue
+		}
+		cmd := exec.Command("go")
+		cmd.Dir = filepath.Join(in.OutputDir, out, tp.dirn)
+		args := []string{
+			"mod",
+			"tidy",
+			"-v",
+		}
+		cmd.Args = append(cmd.Args, args...)
+		// fmt.Printf("wd: %s go %+v\n", cmd.Dir, cmd.Args)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			log.Warningf("ERROR:\n  cmd:%v\n  out:%v   \n   err:%v\n", cmd.Args, string(out), err)
+			return out, "error", err
+		} else {
+			q.Q(string(out))
+		}
 	}
 	return nil, "tidied", nil
 }
 
-func (in *regen) gitTag(pkg string) ([]byte, string, error) {
+func (in *regen) gittag(pkg string) ([]byte, string, error) {
 	tp := in.packages[pkg]
 	majorVer := pkgModVersion(tp.dirn)
 	if majorVer == -1 {
 		return nil, "skipped", nil
 	}
-	wordDir := filepath.Join(in.OutputDir, tp.dirn)
-	dirty, found := gitModAddDirty(wordDir, tp.dirn, majorVer)
-	if !dirty {
-		return nil, "clean", nil
-	}
-	q.Q("  dirty - major ver %v %v\n", majorVer, found)
-	{ //
-		cmd := exec.Command("git")
-		args := []string{"commit", "-m", tp.source + " (" + tp.gitDescribe + ")"}
-		cmd.Args = append(cmd.Args, args...)
-		out, err := cmd.CombinedOutput()
-		if err != nil {
-			return out, "error", err
+	tagged := 0
+	for out, _ := range in.relOutDir {
+		dir := filepath.Join(in.OutputDir, out, tp.dirn)
+		if _, err := os.Open(dir); err != nil {
+			continue
 		}
-	} //
-	ds := strings.Split(tp.dirn, "/")
-	sems := in.sems[ds[0]][majorVer]
-	sort.Sort(sems)
-	sem := Semver{Major: majorVer}
-	if len(sems) == 0 {
-		// sem.Minor = 0
-	} else {
-		// TODO proto check for consistency
-		sem = sems[0]
-		sem.Minor++
-	}
-	tag := fmt.Sprintf("%s/%s", ds[0], sem)
-	{ //
-		cmd := exec.Command("git")
-		args := []string{"tag", tag}
-		cmd.Args = append(cmd.Args, args...)
-		out, err := cmd.CombinedOutput()
-		if err != nil {
-			return out, "error", err
+		dirty, found := tp.gitModAddDirty(in, out, majorVer)
+		if !dirty {
+			return nil, "clean", nil
 		}
-	} //
-	q.Q("  next semver for %s %s\n", tp.dirn, tag)
-	return nil, fmt.Sprintf("commit&tagged-'%s'", tag), nil
+		q.Q("  dirty - major ver %v %v\n", majorVer, found)
+		{ //
+			cmd := exec.Command("git")
+			args := []string{"commit", "-m", tp.source + " (" + tp.gitDescribe + ")"}
+			cmd.Args = append(cmd.Args, args...)
+			out, err := cmd.CombinedOutput()
+			if err != nil {
+				log.Warningf("ERROR:\n  cwd:%v\n  cmd:%v\n  out:%v   \n   err:%v\n", cmd.Dir, cmd.Args, string(out), err)
+				return out, "error", err
+			}
+		} //
+		ds := strings.Split(tp.dirn, "/")
+		tagLead := out + "/" + ds[0]
+		if out == "." {
+			tagLead = ds[0]
+		}
+		// sems map[string]map[int64]Semvers
+		sems := in.sems[tagLead][majorVer]
+		sort.Sort(sems)
+		sem := Semver{Major: majorVer}
+		if len(sems) == 0 {
+			// sem.Minor = 0
+		} else {
+			// TODO proto check for consistency
+			sem = sems[0]
+			sem.Minor++
+			sem.Patch = 0
+		}
+		tag := fmt.Sprintf("%s/%s", tagLead, sem)
+		{ //
+			cmd := exec.Command("git")
+			args := []string{"tag", tag}
+			cmd.Args = append(cmd.Args, args...)
+			out, err := cmd.CombinedOutput()
+			if err != nil {
+				log.Warningf("ERROR:\n  cwd:%v\n  cmd:%v\n  out:%v   \n   err:%v\n", cmd.Dir, cmd.Args, string(out), err)
+				return out, "error", err
+			}
+		} //
+		tagged++
+		q.Q("  next semver for %s %s\n", tp.dirn, tag)
+	}
+	return nil, fmt.Sprintf("commit&tagged-%d", tagged), nil
 }
 
 var vxMod = regexp.MustCompile(`^[^/]+/v(\d+)$`)
@@ -606,7 +635,7 @@ func (a Semvers) Less(i, j int) bool {
 	return false
 }
 
-var pathSemver = regexp.MustCompile(`^([^/]+)/v(\d+)\.(\d+)\.(\d+)$`)
+var pathSemver = regexp.MustCompile(`^(.+)/v(\d+)\.(\d+)\.(\d+)$`)
 
 func gitGetTagSemver() map[string]map[int64]Semvers {
 	ret := map[string]map[int64]Semvers{}
@@ -626,6 +655,7 @@ func gitGetTagSemver() map[string]map[int64]Semvers {
 		line := scan.Text()
 		match := pathSemver.FindStringSubmatch(line)
 		if len(match) == 0 {
+			log.Warningf("tag does look right %v\n", line)
 			q.Q("tag does look right %v\n", line)
 			continue
 		}
@@ -650,13 +680,14 @@ func gitGetTagSemver() map[string]map[int64]Semvers {
 
 var ignoreGitStatus = regexp.MustCompile(`^.*v(\d+)/(.+)?$`)
 
-func gitModAddDirty(wordDir string, dirn string, major int64) (dirty bool, found []string) {
+func (tpkg pkage) gitModAddDirty(in *regen, outDir string, major int64) (dirty bool, found []string) {
+	wordDir := filepath.Join(in.OutputDir, outDir, tpkg.dirn)
 	walkFn := func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			log.Warning(err)
 			return err
 		}
-		mma := pkgModVersion(dirn)
+		mma := pkgModVersion(tpkg.dirn)
 		if mma == -1 || mma != major {
 			return filepath.SkipDir
 		}
@@ -691,7 +722,7 @@ func gitModAddDirty(wordDir string, dirn string, major int64) (dirty bool, found
 				if line[0] == 'R' {
 					fname = fname[strings.Index(fname, " -> ")+4:]
 				}
-				fname = fname[len(dirn)+1:]
+				fname = fname[len(outDir)+1+len(tpkg.dirn)+1:]
 				if ignoreGitStatus.MatchString(fname) {
 					continue
 				}
@@ -710,7 +741,7 @@ func gitModAddDirty(wordDir string, dirn string, major int64) (dirty bool, found
 				// fmt.Printf("git %+v\n", cmd.Args)
 				out, err := cmd.CombinedOutput()
 				if err != nil {
-					log.Warningf("\nerr:%v\ncmd%v\n out\n`%v`\n", cmd, err, string(out))
+					log.Warningf("ERROR:\n  cwd:%v\n  cmd:%v\n  out:%v   \n   err:%v\n", cmd.Dir, cmd.Args, string(out), err)
 					return err
 				}
 			} else {
