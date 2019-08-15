@@ -65,7 +65,8 @@ type regen struct {
 	RelImps   []string `help:"prefix of go.mod local replacements. eg [ 'services-' ] - todo remove"`
 	Require   []string `help:"list of go mod edit -require= eg [ 'github.com/golangq/q@v1.0.7' ]"`
 	SrcDir    string   `help:"source directory eg ../microsoft-dna/store/project - note not included as a -I"`
-	OutputDir string   `help:"output directory eg ."`
+	Match     string   `help:"regex of package name to build."`
+	OutputDir string   `opts:"mode=arg" help:"output directory eg ."`
 	Pass      []string `help:"common separated list of commands to run. Possible commands are protoc,modinit,modrequire,modreplace,modtidy,gittag (default [\"protoc,modinit,modrequire,modreplace\", \"modtidy\", \"gittag\"])"`
 	Plugin    []string `help:"Name and path of a pluging eg protoc-gen-NAME=path/to/mybinary. Much also specify --generator, does not imply it  is present"`
 	Generator []string `help:"Name and params a generator. Form name[=key=value[,[key=value]]*]?[:out_dir]?. See defaut for an example. Turns into '--NAME_out=PARMAS:OUTPUT_DIR'. (default 'go=paths=source_relative')"`
@@ -180,8 +181,20 @@ func (in *regen) Run() error {
 		in.pkgDir(pkg)
 	}
 	in.sems = gitGetTagSemver()
+	var pkgMatch *regexp.Regexp
+	if in.Match != "" {
+		if pkgMatch, err = regexp.Compile(in.Match); err != nil {
+			fmt.Printf("Match err - invalid regexp err: %v\n", err)
+			return fmt.Errorf("Match err - invalid regexp err: %v\n", err)
+		}
+	}
 	for pi, actions := range in.Pass {
 		for _, pkg := range in.pkgWalkOrder {
+			if pkgMatch != nil {
+				if !pkgMatch.MatchString(in.packages[pkg].dirn) {
+					continue
+				}
+			}
 			if !strings.HasPrefix(pkg, in.HostOwner) {
 				continue
 			}
@@ -401,7 +414,7 @@ func (in *regen) protoc(pkg string) ([]byte, string, error) {
 	args = append(args, "-I.")
 	args = append(args, in.packages[pkg].files...)
 	cmd.Args = append(cmd.Args, args...)
-	// fmt.Printf("wd: %v, cmd %+v\n", src, cmd.Args)
+	q.Q("wd: %v, cmd %+v\n", cmd.Dir, cmd.Args)
 	out, err := cmd.CombinedOutput()
 	return out, fmt.Sprintf("files-%d", len(in.packages[pkg].files)), err
 }
