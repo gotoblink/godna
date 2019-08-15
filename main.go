@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	log "github.com/golang/glog"
+	"github.com/golang/protobuf/proto"
 	"github.com/golangq/q"
 	"github.com/jpillora/opts"
 )
@@ -37,6 +38,9 @@ func main() {
 		EmbedGlobalFlagSet().
 		Complete().
 		Version(version).
+		AddCommand(opts.New(&versionCmd{}).Name("version")).
+		AddCommand(opts.New(&Config{}).Name("ptron").
+			ProtoConfig("./.dna-cfg.ptron", "godna.Config")).
 		AddCommand(
 			opts.New(
 				&regen{
@@ -48,14 +52,43 @@ func main() {
 					// },
 				}).
 				Name("regen").
+				// ProtoConfig("./.dna-cfg.ptron", "godna.Config")).
 				ConfigPath("./.dna-cfg.json")).
 		Parse().
 		RunFatal()
 }
 
-func (r *versionCmd) Run() {
+func (cfg Config) Run() error {
+	fmt.Printf("'%+v'\n", cfg)
+	return nil
+}
+
+func (r *versionCmd) Run() error {
+	cfg := Config{
+		HostOwner: "github.com/microsoft",
+		RepoName:  "go-vscode",
+		Includes:  []string{"./vendor/google"},
+		Pass: []*Config_Pass{
+			{Cmd: []*Config_Pass_Command{
+				{
+					// Go:
+				},
+			}},
+			{},
+			// &Config_Pass{
+			// 	Cmd:
+			// },
+		},
+	}
+	buf := bytes.Buffer{}
+	err := proto.MarshalText(&buf, &cfg)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("ptron: %s\n", buf.String())
 	fmt.Printf("version: %s\ndate: %s\ncommit: %s\n", version, date, commit)
 	fmt.Println(r.help)
+	return nil
 }
 
 type regen struct {
@@ -72,7 +105,7 @@ type regen struct {
 	//
 	packages     map[string]*pkage
 	dir2pkg      map[string]*pkage
-	pkgWalkOrder []string
+	pkgWalkOrder pkgSorter
 	sems         map[string]map[int64]Semvers
 	// taglead/vX
 	nextsems   map[string]Semver
@@ -82,6 +115,19 @@ type regen struct {
 	relOutDir     map[string]struct{}
 	dirtyMods     []*dirtyMod
 	taglead2dirty map[string]*dirtyMod
+}
+
+type pkgSorter []*pkage
+
+func (a pkgSorter) Len() int      { return len(a) }
+func (a pkgSorter) Swap(i, j int) { a[i], a[j] = a[j], a[i] }
+func (a pkgSorter) Less(i, j int) bool {
+	depSet := map[string]struct{}{}
+	a[i].collect(depSet)
+	if _, ex := depSet[a[j].gopkg]; ex {
+		return true
+	}
+	return false
 }
 
 type dirtyMod struct {
@@ -165,8 +211,11 @@ func (in *regen) Run() error {
 			"protoc,modinit,modrequire,modreplace",
 			"modtidy",
 			// "gittag",
-			"nexttag",
+			"gitdirty",
+			"gitnexttag",
 			"modrequirelocal",
+			// "gitcommit",
+			// "gittag",
 		}
 	}
 	if len(in.Generator) == 0 {
@@ -212,24 +261,25 @@ func (in *regen) Run() error {
 		os.Exit(1)
 	}
 	// q.Q(in.localName)
+	sort.Sort(in.pkgWalkOrder)
 	for _, pkg := range in.pkgWalkOrder {
 		// in.goModReplacements(pkg)
-		in.pkgDir(pkg)
+		in.pkgDir(pkg.gopkg)
 	}
 	for _, pkg := range in.pkgWalkOrder {
 		// in.goModReplacements(pkg)
-		in.pkgImports(pkg)
+		in.pkgImports(pkg.gopkg)
 	}
 	in.sems = gitGetTagSemver()
 	for pi, actions := range in.Pass {
 		for _, pkg := range in.pkgWalkOrder {
-			if !strings.HasPrefix(pkg, in.HostOwner) {
+			if !strings.HasPrefix(pkg.gopkg, in.HostOwner) {
 				continue
 			}
-			fmt.Printf("pass:%d %s %s", pi+1, pkg, strings.Repeat(" ", in.longestStr-len(pkg)))
+			fmt.Printf("pass:%d %s %s", pi+1, pkg.gopkg, strings.Repeat(" ", in.longestStr-len(pkg.gopkg)))
 			for _, ac := range strings.Split(actions, ",") {
 				if acf, ex := pkgExecs[ac]; ex {
-					if out, msg, err := acf(pkg); err != nil {
+					if out, msg, err := acf(pkg.gopkg); err != nil {
 						log.Errorf("error executing %s: msg: %s %s\n%s", ac, msg, err, out)
 						os.Exit(1)
 					} else {
@@ -289,7 +339,7 @@ func (in *regen) walkFnSrcDir(path string, info os.FileInfo, err error) error {
 				replacements: make(map[string]*pkage),
 			}
 			in.packages[pkgName] = thisPkg
-			in.pkgWalkOrder = append(in.pkgWalkOrder, pkgName)
+			in.pkgWalkOrder = append(in.pkgWalkOrder, thisPkg)
 			if len(pkgName) > in.longestStr {
 				in.longestStr = len(pkgName)
 			}
@@ -475,7 +525,9 @@ func (in *regen) modrequire(pkg string) ([]byte, string, error) {
 				"-require=" + k,
 			}
 			cmd.Args = append(cmd.Args, args...)
+			log.Infof("modrequire %v \n", cmd.Args)
 			if out, err := cmd.CombinedOutput(); err != nil {
+				log.Warningf("ERROR:\n  cmd:%v\n  out:%v   \n   err:%v\n", cmd.Args, string(out), err)
 				return out, "error", err
 			}
 		}
@@ -508,6 +560,7 @@ func (in *regen) modreplace(pkg string) ([]byte, string, error) {
 			cmd.Args = append(cmd.Args, args...)
 			// fmt.Printf("go mod edit %+v\n", cmd.Args)
 			if out, err := cmd.CombinedOutput(); err != nil {
+				log.Warningf("ERROR:\n  cmd:%v\n  out:%v   \n   err:%v\n", cmd.Args, string(out), err)
 				return out, "error", err
 			}
 		}
@@ -639,7 +692,7 @@ func (in *regen) git_nexttag(pkg string) ([]byte, string, error) {
 		if len(sems) == 0 {
 			// sem.Minor = 0
 		} else {
-			// TODO proto check for consistency
+			// TODO proto check for consistency %v \n", cmd.Args)
 			sem = sems[0]
 			sem.Minor++
 			sem.Patch = 0
@@ -662,6 +715,7 @@ func (in *regen) modrequirelocal(pkg string) ([]byte, string, error) {
 			continue
 		}
 		for _, thatp := range imports {
+			log.Infof("\nimports %v %v \n", thisp.gopkg, thatp.gopkg)
 			that_majorVer := pkgModVersion(thatp.dirn)
 			if that_majorVer == -1 {
 				log.Warningf("dep has no version %v", thatp)
@@ -680,8 +734,10 @@ func (in *regen) modrequirelocal(pkg string) ([]byte, string, error) {
 				"-require=" + thatp.gopkg + "@" + tdty.nextTag.String(),
 			}
 			cmd.Args = append(cmd.Args, args...)
+			log.Infof("modrequirelocal %v \n", cmd.Args)
 			// fmt.Printf("go mod edit %+v\n", cmd.Args)
 			if out, err := cmd.CombinedOutput(); err != nil {
+				log.Warningf("ERROR:\n  cmd:%v\n  out:%v   \n   err:%v\n", cmd.Args, string(out), err)
 				return out, "error", err
 			}
 			touch++
@@ -705,6 +761,7 @@ func (in *regen) git_commit(pkg string) ([]byte, string, error) {
 		if !ex {
 			continue
 		}
+		fmt.Printf("tba - %v\n", tdty.tobe_added)
 		for _, fname := range tdty.tobe_added {
 			cmd := exec.Command("git")
 			cmd.Dir = tdty.workDir
@@ -830,56 +887,6 @@ func (in *regen) gittag(pkg string) ([]byte, string, error) {
 	return nil, fmt.Sprintf("commit&tagged-%d", tagged), nil
 }
 
-func (in *regen) modrequirelocal3(pkg string) ([]byte, string, error) {
-	thisp := in.packages[pkg]
-	this_majorVer := pkgModVersion(thisp.dirn)
-	if this_majorVer == -1 {
-		return nil, "skipped", nil
-	}
-	imports := thisp.collect(map[string]struct{}{})
-	for out, _ := range in.relOutDir {
-		dir := filepath.Join(in.OutputDir, out, thisp.dirn)
-		if _, err := os.Open(dir); err != nil {
-			continue
-		}
-		for _, thatp := range imports {
-			ds := strings.Split(thatp.dirn, "/")
-			tagLead := out + "/" + ds[0]
-			if out == "." {
-				tagLead = ds[0]
-			}
-			that_majorVer := pkgModVersion(thatp.dirn)
-			if that_majorVer == -1 {
-				log.Warningf("dep has no version %v", thatp)
-				return nil, "", fmt.Errorf("dep has no version %v", thatp)
-			}
-			sem, ex := in.nextsems[fmt.Sprintf("%s/v%d", tagLead, that_majorVer)]
-			if !ex {
-				sems := in.sems[tagLead][that_majorVer]
-				if len(sems) == 0 {
-					log.Warningf("dep has no tag %s/%d", tagLead, that_majorVer)
-					return nil, "", fmt.Errorf("no tag %s/%d", tagLead, that_majorVer)
-				}
-				sort.Sort(sems)
-				sem = sems[0]
-			}
-			cmd := exec.Command("go")
-			cmd.Dir = filepath.Join(in.OutputDir, out, thisp.dirn)
-			args := []string{
-				"mod",
-				"edit",
-				"-require=" + thatp.gopkg + "@" + sem.String(),
-			}
-			cmd.Args = append(cmd.Args, args...)
-			// fmt.Printf("go mod edit %+v\n", cmd.Args)
-			if out, err := cmd.CombinedOutput(); err != nil {
-				return out, "error", err
-			}
-		}
-	}
-	return nil, fmt.Sprintf("required-%d", len(in.Require)), nil
-}
-
 func (in *regen) gitcommittag(pkg string) ([]byte, string, error) {
 	tp := in.packages[pkg]
 	majorVer := pkgModVersion(tp.dirn)
@@ -939,53 +946,6 @@ func (in *regen) gitcommittag(pkg string) ([]byte, string, error) {
 		q.Q("  next semver for %s %s\n", tp.dirn, tag)
 	}
 	return nil, fmt.Sprintf("commit&tagged-%d", tagged), nil
-}
-
-func (in *regen) modrequirelocal2(pkg string) ([]byte, string, error) {
-	thisp := in.packages[pkg]
-	this_majorVer := pkgModVersion(thisp.dirn)
-	if this_majorVer == -1 {
-		return nil, "skipped", nil
-	}
-	imports := thisp.collect(map[string]struct{}{})
-	newSems := gitGetTagSemver()
-	for out, _ := range in.relOutDir {
-		dir := filepath.Join(in.OutputDir, out, thisp.dirn)
-		if _, err := os.Open(dir); err != nil {
-			continue
-		}
-		for _, thatp := range imports {
-			ds := strings.Split(thatp.dirn, "/")
-			tagLead := out + "/" + ds[0]
-			if out == "." {
-				tagLead = ds[0]
-			}
-			that_majorVer := pkgModVersion(thatp.dirn)
-			if that_majorVer == -1 {
-				log.Warningf("dep has no version %v", thatp)
-				return nil, "", fmt.Errorf("dep has no version %v", thatp)
-			}
-			sems := newSems[tagLead][that_majorVer]
-			if len(sems) == 0 {
-				log.Warningf("dep has no tag %s/%d", tagLead, that_majorVer)
-				return nil, "", fmt.Errorf("no tag %s/%d", tagLead, that_majorVer)
-			}
-			sort.Sort(sems)
-			cmd := exec.Command("go")
-			cmd.Dir = filepath.Join(in.OutputDir, out, thisp.dirn)
-			args := []string{
-				"mod",
-				"edit",
-				"-require=" + thatp.gopkg + "@" + sems[0].String(),
-			}
-			cmd.Args = append(cmd.Args, args...)
-			// fmt.Printf("go mod edit %+v\n", cmd.Args)
-			if out, err := cmd.CombinedOutput(); err != nil {
-				return out, "error", err
-			}
-		}
-	}
-	return nil, fmt.Sprintf("required-%d", len(in.Require)), nil
 }
 
 var vxMod = regexp.MustCompile(`^[^/]+/v(\d+)$`)

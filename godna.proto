@@ -1,0 +1,112 @@
+syntax = "proto3";
+package godna;
+// option go_package = "github.com/wxio/godna";
+option go_package = "main";
+
+import "google/protobuf/descriptor.proto";
+
+extend google.protobuf.FileOptions {
+    Config cfg = 49999;
+}
+extend google.protobuf.FieldOptions {
+    string help = 49999;
+}
+
+message Config {
+    string   host_owner              = 1
+    [(help) = "host and owner of the repo of the generated code eg. github.com/microsoft"];
+    string   repo_name               = 2
+    [(help) = "repo name of the generated code eg go-vscode"];
+    repeated string includes        = 3
+    [(help) = "protoc path -I eg [ '../microsoft-dna/vendor' ]"];
+    repeated string rel_imps         = 4
+    [(help) = "prefix of go.mod local replacements. eg [ 'services-' ] - todo remove"];
+    repeated string require         = 5 
+    [(help) = "list of go mod edit -require= eg [ 'github.com/golangq/q@v1.0.7' ]"];
+    string   src_dir                 = 6
+    [(help) = "source directory eg ../microsoft-dna/store/project - note not included as a -I"];
+    string   outputDir              = 7
+    [(help) = "output directory eg ."];
+    repeated Pass pass            = 8
+    [(help) = "common separated list of commands to run. Possible commands are protoc,modinit,modrequire,modreplace,modtidy,gittag (default [\"protoc,modinit,modrequire,modreplace\", \"modtidy\", \"gittag\", \"modrequirelocal\"])"];
+    repeated string plugin_path          = 9
+    [(help) = "Name and path of a pluging eg protoc-gen-NAME=path/to/mybinary. Much also specify --generator, does not imply it  is present"];
+    repeated Generator generator       = 10
+    [(help) = "Name and params a generator. Form name[=key=value[,[key=value]]*]?[:out_dir]?. See defaut for an example. Turns into '--NAME_out=PARMAS:OUTPUT_DIR'. (default 'go=paths=source_relative')"];
+    //
+    message Pass {
+        repeated Command cmd = 1;
+        //
+        enum Command {
+            NONE = 0;
+        }
+    }
+    message Generator {
+        Plugin plugin = 1;
+        //
+        message Plugin {
+            oneof cmd {
+                Go go = 1;
+                Micro micro = 2;
+                Grpc_Gateway grpc_gateway = 3;
+                Swagger swagger = 4;
+            }
+        }
+        message Go {
+            repeated Plugins plugins = 1;
+            Paths paths = 2;
+            // string import_prefix = 3; 
+            bool annotate_code = 4;
+            // import map
+            //
+            enum Plugins {
+                None = 0;
+                Grpc = 1;
+            }
+        }
+        message Micro {
+            Paths paths = 2;
+            // import map
+            //
+        }
+        message Grpc_Gateway {
+            Paths paths = 2;
+            string register_func_suffix = 3;
+            // https://github.com/grpc-ecosystem/grpc-gateway/protoc-gen-grpc-gateway/main.go
+            //
+            // importPrefix               = flag.String("import_prefix", "", "prefix to be added to go package paths for imported proto files")
+            // importPath                 = flag.String("import_path", "", "used as the package if no input files declare go_package. If it contains slashes, everything up to the rightmost slash is ignored.")
+            // registerFuncSuffix         = flag.String("register_func_suffix", "Handler", "used to construct names of generated Register*<Suffix> methods.")
+            // useRequestContext          = flag.Bool("request_context", true, "determine whether to use http.Request's context or not")
+            // allowDeleteBody            = flag.Bool("allow_delete_body", false, "unless set, HTTP DELETE methods may not have a body")
+            // grpcAPIConfiguration       = flag.String("grpc_api_configuration", "", "path to gRPC API Configuration in YAML format")
+            // pathType                   = flag.String("paths", "", "specifies how the paths of generated files are structured")
+            // allowRepeatedFieldsInBody  = flag.Bool("allow_repeated_fields_in_body", false, "allows to use repeated field in `body` and `response_body` field of `google.api.http` annotation option")
+            // repeatedPathParamSeparator = flag.String("repeated_path_param_separator", "csv", "configures how repeated fields should be split. Allowed values are `csv`, `pipes`, `ssv` and `tsv`.")
+            // allowPatchFeature          = flag.Bool("allow_patch_feature", true, "determines whether to use PATCH feature involving update masks (using google.protobuf.FieldMask).")
+            // allowColonFinalSegments    = flag.Bool("allow_colon_final_segments", false, "determines whether colons are permitted in the final segment of a path")
+            // versionFlag                = flag.Bool("version", false, "print the current verison")
+            //
+        }
+        message Swagger {
+            bool logtostderr = 1;
+            // importPrefix               = flag.String("import_prefix", "", "prefix to be added to go package paths for imported proto files")
+            // file                       = flag.String("file", "-", "where to load data from")
+            // allowDeleteBody            = flag.Bool("allow_delete_body", false, "unless set, HTTP DELETE methods may not have a body")
+            // grpcAPIConfiguration       = flag.String("grpc_api_configuration", "", "path to gRPC API Configuration in YAML format")
+            // allowMerge                 = flag.Bool("allow_merge", false, "if set, generation one swagger file out of multiple protos")
+            // mergeFileName              = flag.String("merge_file_name", "apidocs", "target swagger file name prefix after merge")
+            // useJSONNamesForFields      = flag.Bool("json_names_for_fields", false, "if it sets Field.GetJsonName() will be used for generating swagger definitions, otherwise Field.GetName() will be used")
+            // repeatedPathParamSeparator = flag.String("repeated_path_param_separator", "csv", "configures how repeated fields should be split. Allowed values are `csv`, `pipes`, `ssv` and `tsv`.")
+            // versionFlag                = flag.Bool("version", false, "print the current verison")
+            // allowRepeatedFieldsInBody  = flag.Bool("allow_repeated_fields_in_body", false, "allows to use repeated field in `body` and `response_body` field of `google.api.http` annotation option")
+            // includePackageInTags       = flag.Bool("include_package_in_tags", false, "if unset, the gRPC service name is added to the `Tags` field of each operation. if set and the `package` directive is shown in the proto file, the package name will be prepended to the service name")
+            // useFQNForSwaggerName       = flag.Bool("fqn_for_swagger_name", false, "if set, the object's swagger names will use the fully qualify name from the proto definition (ie my.package.MyMessage.MyInnerMessage")        
+        }
+        enum Paths {
+            Import = 0;
+            Source_Relative = 1;
+        }
+
+    }
+}
