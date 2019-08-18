@@ -12,10 +12,11 @@ import (
 
 	log "github.com/golang/glog"
 	"github.com/golangq/q"
-	"github.com/wxio/godna/pb/config"
+	"github.com/wxio/godna/pb/dna/config"
 )
 
 type Src struct {
+	gomodPaths []string
 }
 
 type cfg2src struct {
@@ -33,12 +34,53 @@ type cfg2src struct {
 	// taglead2dirty map[string]*dirtyMod
 }
 
+func (in Config) collectGomods() ([]string, error) {
+	gomodPaths := []string{}
+	walkCollectGoMods := func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if !info.Mode().IsRegular() || filepath.Base(path) != "go.mod" {
+			return nil
+		}
+		if rel, err := filepath.Rel(in.cfg.SrcDir, filepath.Dir(path)); err != nil {
+			return err
+		} else {
+			gomodPaths = append(gomodPaths, rel)
+		}
+		return nil
+	}
+	if err := filepath.Walk(in.cfg.SrcDir, walkCollectGoMods); err != nil {
+		return nil, err
+	}
+	return gomodPaths, nil
+}
+
 func Cfg2Src(in config.Config, resp *Src) error {
 	proc := &cfg2src{
 		packages:     map[string]*pkage{},
+		dir2pkg:      map[string]*pkage{},
 		pkgWalkOrder: pkgSorter{},
 		longestStr:   0,
 	}
+	walkCollectGoMods := func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if !info.Mode().IsRegular() || filepath.Base(path) != "go.mod" {
+			return nil
+		}
+		if rel, err := filepath.Rel(in.SrcDir, filepath.Dir(path)); err != nil {
+			return err
+		} else {
+			resp.gomodPaths = append(resp.gomodPaths, rel)
+		}
+		return nil
+	}
+	if err := filepath.Walk(in.SrcDir, walkCollectGoMods); err != nil {
+		return err
+	}
+
 	walkFnSrcDir := func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err

@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/wxio/godna/pb/config"
+	"github.com/wxio/godna/pb/dna/config"
 
 	"github.com/golang/protobuf/proto"
 	"github.com/jpillora/opts"
@@ -65,11 +65,20 @@ func (cfg Config) Run() error {
 		return err
 	}
 
-	fmt.Printf("'%+v'\n", *cfg.cfg)
-	resp := &Src{}
-	if err := Cfg2Src(*cfg.cfg, resp); err != nil {
+	// fmt.Printf("'%+v'\n", *cfg.cfg)
+	// resp := &Src{}
+	// if err := Cfg2Src(*cfg.cfg, resp); err != nil {
+	// 	return err
+	// }
+	gomods, err := cfg.collectGomods()
+	if err != nil {
 		return err
 	}
+	fmt.Println("----------")
+	for _, x := range gomods {
+		fmt.Printf("%s\n", x)
+	}
+	fmt.Println("----------")
 	for _, pod := range cfg.cfg.PluginOutputDir {
 		for _, gen := range pod.Generator {
 			fmt.Printf("%s/%s %s %v\n", cfg.OutputDir, pod.Path, pod.OutType, gen)
