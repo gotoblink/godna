@@ -1,7 +1,6 @@
 syntax = "proto3";
 package godna;
-// option go_package = "github.com/wxio/godna";
-option go_package = "main";
+option go_package = "github.com/wxio/godna/pb/config";
 
 import "google/protobuf/descriptor.proto";
 
@@ -15,6 +14,7 @@ extend google.protobuf.FieldOptions {
 message Config {
     string   host_owner              = 1
     [(help) = "host and owner of the repo of the generated code eg. github.com/microsoft"];
+    //TODO protobuf validators eg [(validator.maditory) = true]
     string   repo_name               = 2
     [(help) = "repo name of the generated code eg go-vscode"];
     repeated string includes        = 3
@@ -25,20 +25,37 @@ message Config {
     [(help) = "list of go mod edit -require= eg [ 'github.com/golangq/q@v1.0.7' ]"];
     string   src_dir                 = 6
     [(help) = "source directory eg ../microsoft-dna/store/project - note not included as a -I"];
-    string   outputDir              = 7
-    [(help) = "output directory eg ."];
+    // string   output_root              = 7
+    // [(help) = "output root directory eg ."];
     repeated Pass pass            = 8
     [(help) = "common separated list of commands to run. Possible commands are protoc,modinit,modrequire,modreplace,modtidy,gittag (default [\"protoc,modinit,modrequire,modreplace\", \"modtidy\", \"gittag\", \"modrequirelocal\"])"];
     repeated string plugin_path          = 9
     [(help) = "Name and path of a pluging eg protoc-gen-NAME=path/to/mybinary. Much also specify --generator, does not imply it  is present"];
-    repeated Generator generator       = 10
-    [(help) = "Name and params a generator. Form name[=key=value[,[key=value]]*]?[:out_dir]?. See defaut for an example. Turns into '--NAME_out=PARMAS:OUTPUT_DIR'. (default 'go=paths=source_relative')"];
+    repeated PluginOutDir plugin_output_dir = 10
+    [(help) = "output directory for the plugins. eg 'pb' and 'oapi' for 1. Go, Grpc, Micro and Ecosytem-Gateway and 2. Swagger"];
     //
+    message PluginOutDir {
+        string path = 1;
+        OutType out_type  = 2;
+        repeated Generator generator = 3;
+        //
+        enum OutType {
+            NOTHING_SPECIAL = 0;
+            GO_MODS = 1;
+        }
+    }
     message Pass {
         repeated Command cmd = 1;
         //
         enum Command {
             NONE = 0;
+            PROTOC = 1;
+            MOD_INIT = 2;
+            MOD_REQUIRE = 3;
+            MOD_REPLACE = 4;
+            MOD_TIDY = 5;
+            GIT_ADD_NEXTTAG = 6;
+            GIT_TAG = 7;
         }
     }
     message Generator {
@@ -57,7 +74,7 @@ message Config {
             Paths paths = 2;
             // string import_prefix = 3; 
             bool annotate_code = 4;
-            // import map
+            // map<string,string> importMap = 5;
             //
             enum Plugins {
                 None = 0;
