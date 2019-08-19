@@ -54,10 +54,11 @@ type protoFile struct {
 }
 
 type goModWithFilesImports struct {
-	RelDir  string
-	Module  string
-	Files   []string
-	Imports []string
+	ContainingMod string
+	RelDir        string
+	Package       string
+	Files         []string
+	Imports       []string
 }
 
 var goModRe = regexp.MustCompile(`^module\s+([^ ]+) *$`)
@@ -152,8 +153,9 @@ func (in protoFiles) collectModules(rel string, curmod string) ([]goModWithFiles
 		var ex bool
 		if mod, ex = mods[file.Module]; !ex {
 			mod = &goModWithFilesImports{
-				RelDir: rel,
-				Module: file.Module,
+				RelDir:        rel,
+				ContainingMod: curmod,
+				Package:       file.Module,
 			}
 			mods[file.Module] = mod
 			imports[file.Module] = map[string]bool{}
@@ -171,8 +173,8 @@ func (in protoFiles) collectModules(rel string, curmod string) ([]goModWithFiles
 	}
 	ret := []goModWithFilesImports{}
 	for _, mod := range mods {
-		if !strings.HasPrefix(mod.Module, curmod) {
-			return nil, fmt.Errorf("not contained in module %v %v", mod.Module, curmod)
+		if !strings.HasPrefix(mod.Package, curmod) {
+			return nil, fmt.Errorf("not contained in module %v %v", mod.Package, curmod)
 		}
 		ret = append(ret, *mod)
 	}
@@ -221,13 +223,23 @@ func protocGenerator(outdir string, gen *config.Config_Generator) string {
 
 func (in goModWithFilesImports) protoc(srcdir string, outroot, outdir string, gen *config.Config_Generator, includes []string) error {
 	cmd := exec.Command("protoc")
-	outAbs, err := filepath.Abs(filepath.Join(outroot, outdir))
+	// basedir := filepath.Dir(in.RelDir)
+	// modname := filepath.Base(in.RelDir)
+	outbit_idx := strings.LastIndex(in.ContainingMod, "/"+outdir+"/")
+	outbit := filepath.Base(in.RelDir)
+	if outbit_idx > -1 {
+		outbit = in.ContainingMod[outbit_idx+len(outdir)+1:]
+	} else {
+		q.Q(in.ContainingMod, outdir)
+	}
+	outAbs, err := filepath.Abs(filepath.Join(outroot, outdir, outbit))
 	if err != nil {
 		return err
 	}
+	os.MkdirAll(outAbs, os.ModePerm)
 	plg := protocGenerator(outAbs, gen)
 	args := []string{plg}
-	args = append(args, "-I..")
+	// args = append(args, "-I..")
 	args = append(args, "-I"+in.RelDir)
 	for _, inc := range includes {
 		incAbs, err := filepath.Abs(inc)
@@ -241,8 +253,15 @@ func (in goModWithFilesImports) protoc(srcdir string, outroot, outdir string, ge
 	}
 	cmd.Args = append(cmd.Args, args...)
 	cmd.Dir = srcdir
-	fmt.Printf("     ( cd %v; %v)\n", cmd.Dir, strings.Join(cmd.Args, " "))
-	return nil
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		scmd := fmt.Sprintf("( cd %v; %v)\n", cmd.Dir, strings.Join(cmd.Args, " "))
+		sout := string(out)
+		q.Q(err)
+		q.Q(scmd)
+		q.Q(sout)
+	}
+	return err
 }
 
 func Cfg2Src(in config.Config, resp *Src) error {
