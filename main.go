@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 
@@ -89,7 +90,9 @@ func (cfg *Config) Run() error {
 			fmt.Printf("  %s\n", y)
 			for _, pod := range cfg.cfg.PluginOutputDir {
 				for _, gen := range pod.Generator {
-					y.protoc(cfg.cfg.SrcDir, cfg.OutputDir, pod.Path, gen, cfg.cfg.Includes)
+					if err = y.protoc(cfg.cfg.SrcDir, cfg.OutputDir, pod, gen, cfg.cfg.Includes); err != nil {
+						return err
+					}
 				}
 			}
 		}
@@ -97,11 +100,32 @@ func (cfg *Config) Run() error {
 	fmt.Println("----------")
 	for _, pod := range cfg.cfg.PluginOutputDir {
 		for _, gen := range pod.Generator {
-
 			fmt.Printf("%s/%s %s %v\n", cfg.OutputDir, pod.Path, pod.OutType, gen)
 		}
 	}
 	return nil
+}
+
+func filecopy(src, dst string) (int64, error) {
+	sourceFileStat, err := os.Stat(src)
+	if err != nil {
+		return 0, fmt.Errorf("stat %v", err)
+	}
+	if !sourceFileStat.Mode().IsRegular() {
+		return 0, fmt.Errorf("%s is not a regular file", src)
+	}
+	source, err := os.Open(src)
+	if err != nil {
+		return 0, fmt.Errorf("open: %v", err)
+	}
+	defer source.Close()
+	destination, err := os.Create(dst)
+	if err != nil {
+		return 0, fmt.Errorf("create: %v", err)
+	}
+	defer destination.Close()
+	nBytes, err := io.Copy(destination, source)
+	return nBytes, err
 }
 
 func (r *versionCmd) Run() error {

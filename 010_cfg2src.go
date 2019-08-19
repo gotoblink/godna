@@ -205,6 +205,9 @@ func protocGenerator(outdir string, gen *config.Config_Generator) string {
 		name := "--grpc-gateway_out="
 		args := []string{}
 		args = append(args, "paths="+strings.ToLower(plg.GrpcGateway.Paths.String()))
+		if plg.GrpcGateway.RegisterFuncSuffix != "" {
+			args = append(args, "register_func_suffix="+plg.GrpcGateway.RegisterFuncSuffix)
+		}
 		name = name + strings.Join(args, ",") + ":" + outdir
 		return name
 	case *config.Config_Generator_Plugin_Swagger:
@@ -221,10 +224,11 @@ func protocGenerator(outdir string, gen *config.Config_Generator) string {
 	return ""
 }
 
-func (in goModWithFilesImports) protoc(srcdir string, outroot, outdir string, gen *config.Config_Generator, includes []string) error {
+func (in goModWithFilesImports) protoc(srcdir string, outroot string, pod *config.Config_PluginOutDir, gen *config.Config_Generator, includes []string) error {
 	cmd := exec.Command("protoc")
 	// basedir := filepath.Dir(in.RelDir)
 	// modname := filepath.Base(in.RelDir)
+	outdir := pod.Path
 	outbit_idx := strings.LastIndex(in.ContainingMod, "/"+outdir+"/")
 	outbit := filepath.Base(in.RelDir)
 	if outbit_idx > -1 {
@@ -237,6 +241,21 @@ func (in goModWithFilesImports) protoc(srcdir string, outroot, outdir string, ge
 		return err
 	}
 	os.MkdirAll(outAbs, os.ModePerm)
+
+	if in.ContainingMod == in.Package && pod.OutType == config.Config_PluginOutDir_GO_MODS {
+		src := filepath.Join(srcdir, in.RelDir, "go.mod")
+		pwd, _ := os.Getwd()
+		dest := filepath.Join(outAbs, "go.mod")
+		if _, err = os.Open(dest); err != nil {
+			fmt.Printf("$ %s cp %s %s\n", pwd, src, dest)
+			if _, err = filecopy(src, dest); err != nil {
+				return err
+			}
+		} else {
+			fmt.Printf("$ %s #cp %s %s\n", pwd, src, dest)
+		}
+	}
+
 	plg := protocGenerator(outAbs, gen)
 	args := []string{plg}
 	// args = append(args, "-I..")
