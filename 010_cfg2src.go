@@ -61,6 +61,11 @@ type goModWithFilesImports struct {
 	Imports       []string
 }
 
+type goModPlus struct {
+	mod  goMod
+	pkgs []goModWithFilesImports
+}
+
 var goModRe = regexp.MustCompile(`^module\s+([^ ]+) *$`)
 
 func (in *goMods) collectGomods(cfg *Config) error {
@@ -104,6 +109,11 @@ func (in *goMod) collectFiles(cfg *Config) (*protoFiles, error) {
 	walkCollect := func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
+		}
+		if cwd != path {
+			if _, err := os.Open(filepath.Join(path, "go.mod")); err == nil {
+				return filepath.SkipDir
+			}
 		}
 		if !info.Mode().IsRegular() || !strings.HasSuffix(path, ".proto") {
 			return nil
@@ -241,7 +251,7 @@ func (in goModWithFilesImports) protoc(srcdir string, outroot string, pod *confi
 		return err
 	}
 	os.MkdirAll(outAbs, os.ModePerm)
-
+	//
 	if in.ContainingMod == in.Package && pod.OutType == config.Config_PluginOutDir_GO_MODS {
 		src := filepath.Join(srcdir, in.RelDir, "go.mod")
 		pwd, _ := os.Getwd()
@@ -255,7 +265,7 @@ func (in goModWithFilesImports) protoc(srcdir string, outroot string, pod *confi
 			fmt.Printf("$ %s #cp %s %s\n", pwd, src, dest)
 		}
 	}
-
+	//
 	plg := protocGenerator(outAbs, gen)
 	args := []string{plg}
 	// args = append(args, "-I..")
