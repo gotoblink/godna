@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -34,8 +35,34 @@ type cfg2src struct {
 	// taglead2dirty map[string]*dirtyMod
 }
 
-func (in Config) collectGomods() ([]string, error) {
-	gomodPaths := []string{}
+type goMods struct {
+	Modules []goMod
+}
+
+type goMod struct {
+	RelDir string
+	Module string
+}
+
+type protoFiles struct {
+	Files []protoFile
+}
+type protoFile struct {
+	RelFile string
+	Module  string
+	Imports []string
+}
+
+type goModWithFilesImports struct {
+	RelDir  string
+	Module  string
+	Files   []string
+	Imports []string
+}
+
+var goModRe = regexp.MustCompile(`^module\s+([^ ]+) *$`)
+
+func (in *goMods) collectGomods(cfg *Config) error {
 	walkCollectGoMods := func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
@@ -43,17 +70,179 @@ func (in Config) collectGomods() ([]string, error) {
 		if !info.Mode().IsRegular() || filepath.Base(path) != "go.mod" {
 			return nil
 		}
-		if rel, err := filepath.Rel(in.cfg.SrcDir, filepath.Dir(path)); err != nil {
+		gm := goMod{}
+		if rel, err := filepath.Rel(cfg.cfg.SrcDir, filepath.Dir(path)); err != nil {
 			return err
 		} else {
-			gomodPaths = append(gomodPaths, rel)
+			gm.RelDir = rel
 		}
+		content, err := ioutil.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		if match := goModRe.FindSubmatch(content); len(match) > 0 {
+			gm.Module = strings.TrimSpace(string(match[1]))
+		} else {
+			return fmt.Errorf("no go module found in %s/go.mod", gm.RelDir)
+		}
+		in.Modules = append(in.Modules, gm)
 		return nil
 	}
-	if err := filepath.Walk(in.cfg.SrcDir, walkCollectGoMods); err != nil {
+	if err := filepath.Walk(cfg.cfg.SrcDir, walkCollectGoMods); err != nil {
+		return err
+	}
+	return nil
+}
+
+var goPkgOptRe = regexp.MustCompile(`(?m)^option go_package = (.*);`)
+var protoImportRe = regexp.MustCompile(`(?m)^import "(.*)/[^/]+.proto";`)
+
+func (in *goMod) collectFiles(cfg *Config) (*protoFiles, error) {
+	cwd := filepath.Join(cfg.cfg.SrcDir, in.RelDir)
+	pfs := &protoFiles{}
+	walkCollect := func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if !info.Mode().IsRegular() || !strings.HasSuffix(path, ".proto") {
+			return nil
+		}
+		pf := protoFile{}
+		if rel, err := filepath.Rel(cwd, path); err != nil {
+			return err
+		} else {
+			pf.RelFile = rel
+		}
+		content, err := ioutil.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		//
+		if match := goPkgOptRe.FindSubmatch(content); len(match) > 0 {
+			if pf.Module, err = strconv.Unquote(string(match[1])); err != nil {
+				return err
+			}
+		}
+		if p := strings.IndexRune(pf.Module, ';'); p > 0 {
+			pf.Module = pf.Module[:p]
+		}
+		if pf.Module == "" {
+			return fmt.Errorf("No package in file %s\n", path)
+		}
+		//
+		protoImportMatch := protoImportRe.FindAllSubmatch(content, -1)
+		for _, m := range protoImportMatch {
+			pf.Imports = append(pf.Imports, string(m[1]))
+		}
+		//
+		pfs.Files = append(pfs.Files, pf)
+		return nil
+	}
+	if err := filepath.Walk(cwd, walkCollect); err != nil {
 		return nil, err
 	}
-	return gomodPaths, nil
+	return pfs, nil
+}
+
+func (in protoFiles) collectModules(rel string, curmod string) ([]goModWithFilesImports, error) {
+	mods := map[string]*goModWithFilesImports{}
+	imports := map[string]map[string]bool{}
+	for _, file := range in.Files {
+		var mod *goModWithFilesImports
+		var ex bool
+		if mod, ex = mods[file.Module]; !ex {
+			mod = &goModWithFilesImports{
+				RelDir: rel,
+				Module: file.Module,
+			}
+			mods[file.Module] = mod
+			imports[file.Module] = map[string]bool{}
+		}
+		mod.Files = append(mod.Files, file.RelFile)
+		for _, imp := range file.Imports {
+			imports[file.Module][imp] = true
+		}
+	}
+	for k, _ := range mods {
+		for imp, _ := range imports[k] {
+			mi := mods[k]
+			mi.Imports = append(mi.Imports, imp)
+		}
+	}
+	ret := []goModWithFilesImports{}
+	for _, mod := range mods {
+		if !strings.HasPrefix(mod.Module, curmod) {
+			return nil, fmt.Errorf("not contained in module %v %v", mod.Module, curmod)
+		}
+		ret = append(ret, *mod)
+	}
+	return ret, nil
+}
+
+func protocGenerator(outdir string, gen *config.Config_Generator) string {
+	switch plg := gen.GetPlugin().GetCmd().(type) {
+	case *config.Config_Generator_Plugin_Go:
+		name := "--go_out="
+		args := []string{}
+		if len(plg.Go.Plugins) != 0 {
+			for _, pp := range plg.Go.Plugins {
+				pl := strings.ToLower(pp.String())
+				args = append(args, "plugins="+pl)
+			}
+		}
+		args = append(args, "paths="+strings.ToLower(plg.Go.Paths.String()))
+		name = name + strings.Join(args, ",") + ":" + outdir
+		return name
+	case *config.Config_Generator_Plugin_Micro:
+		name := "--micro_out="
+		args := []string{}
+		args = append(args, "paths="+strings.ToLower(plg.Micro.Paths.String()))
+		name = name + strings.Join(args, ",") + ":" + outdir
+		return name
+	case *config.Config_Generator_Plugin_GrpcGateway:
+		name := "--grpc-gateway_out="
+		args := []string{}
+		args = append(args, "paths="+strings.ToLower(plg.GrpcGateway.Paths.String()))
+		name = name + strings.Join(args, ",") + ":" + outdir
+		return name
+	case *config.Config_Generator_Plugin_Swagger:
+		name := "--swagger_out="
+		args := []string{}
+		if plg.Swagger.Logtostderr {
+			args = append(args, "logtostderr=true")
+		} else {
+			args = append(args, "logtostderr=false")
+		}
+		name = name + strings.Join(args, ",") + ":" + outdir
+		return name
+	}
+	return ""
+}
+
+func (in goModWithFilesImports) protoc(srcdir string, outroot, outdir string, gen *config.Config_Generator, includes []string) error {
+	cmd := exec.Command("protoc")
+	outAbs, err := filepath.Abs(filepath.Join(outroot, outdir))
+	if err != nil {
+		return err
+	}
+	plg := protocGenerator(outAbs, gen)
+	args := []string{plg}
+	args = append(args, "-I..")
+	args = append(args, "-I"+in.RelDir)
+	for _, inc := range includes {
+		incAbs, err := filepath.Abs(inc)
+		if err != nil {
+			return err
+		}
+		args = append(args, "-I"+incAbs)
+	}
+	for _, fi := range in.Files {
+		args = append(args, fi)
+	}
+	cmd.Args = append(cmd.Args, args...)
+	cmd.Dir = srcdir
+	fmt.Printf("     ( cd %v; %v)\n", cmd.Dir, strings.Join(cmd.Args, " "))
+	return nil
 }
 
 func Cfg2Src(in config.Config, resp *Src) error {

@@ -225,9 +225,6 @@ func (in *regen) Run() error {
 
 type pkgExec func(pkg string) (out []byte, msg string, err error)
 
-var goPkgOptRe = regexp.MustCompile(`(?m)^option go_package = (.*);`)
-var protoImportRe = regexp.MustCompile(`(?m)^import "(.*)/[^/]+.proto";`)
-
 func (in *regen) walkFnSrcDir(path string, info os.FileInfo, err error) error {
 	if err != nil {
 		return err

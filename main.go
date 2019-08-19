@@ -57,7 +57,7 @@ func main() {
 		RunFatal()
 }
 
-func (cfg Config) Run() error {
+func (cfg *Config) Run() error {
 	var err error
 	cfg.cfg.SrcDir = os.ExpandEnv(cfg.cfg.SrcDir)
 	cfg.cfg.SrcDir, err = filepath.Abs(cfg.cfg.SrcDir)
@@ -70,17 +70,34 @@ func (cfg Config) Run() error {
 	// if err := Cfg2Src(*cfg.cfg, resp); err != nil {
 	// 	return err
 	// }
-	gomods, err := cfg.collectGomods()
-	if err != nil {
+	gomods := &goMods{}
+	if err := gomods.collectGomods(cfg); err != nil {
 		return err
 	}
 	fmt.Println("----------")
-	for _, x := range gomods {
+	for _, x := range gomods.Modules {
 		fmt.Printf("%s\n", x)
+		pfs, err := x.collectFiles(cfg)
+		if err != nil {
+			return err
+		}
+		mods, err := pfs.collectModules(x.RelDir, x.Module)
+		if err != nil {
+			return err
+		}
+		for _, y := range mods {
+			fmt.Printf("  %s\n", y)
+			for _, pod := range cfg.cfg.PluginOutputDir {
+				for _, gen := range pod.Generator {
+					y.protoc(cfg.cfg.SrcDir, cfg.OutputDir, pod.Path, gen, cfg.cfg.Includes)
+				}
+			}
+		}
 	}
 	fmt.Println("----------")
 	for _, pod := range cfg.cfg.PluginOutputDir {
 		for _, gen := range pod.Generator {
+
 			fmt.Printf("%s/%s %s %v\n", cfg.OutputDir, pod.Path, pod.OutType, gen)
 		}
 	}
