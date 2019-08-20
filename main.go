@@ -93,9 +93,10 @@ func (cfg *Config) Run() error {
 		mp := goModPlus{gomod, mods}
 		gomods2 = append(gomods2, mp)
 	}
+	remote, desc := describe(cfg.cfg.SrcDir)
 	modMap := map[string]*goModAbsOut{}
 	goModAbs := goModAbsOutBy{}
-	gensByOut := []goPkgAbsOut{}
+	gensByOut := []*goPkgAbsOut{}
 	for _, modp := range gomods2 {
 		for _, pkg := range modp.pkgs {
 			for _, pod := range cfg.cfg.PluginOutputDir {
@@ -111,7 +112,7 @@ func (cfg *Config) Run() error {
 					pkg:    pkg,
 					mod:    ismod,
 				}
-				gensByOut = append(gensByOut, gensPkg)
+				gensByOut = append(gensByOut, &gensPkg)
 				if ismod {
 					gomod := goModAbsOut{
 						mod:  modp,
@@ -177,6 +178,7 @@ func (cfg *Config) Run() error {
 				fmt.Printf("%s %v\n", pkg.outBit, pkg.dirtyFiles)
 			}
 		}
+		gensByOut[i] = pkg
 	}
 	//
 	gitTagSemver, err := gitGetTagSemver(cfg.OutputDir)
@@ -213,12 +215,47 @@ func (cfg *Config) Run() error {
 	// for _, pkg := range gensByOut {
 	// 	fmt.Printf("%s %20v\n", pkg.pkg.Package, pkg.pkg.Imports)
 	// }
-	for _, x := range goModAbs {
-		fmt.Printf("%s %v\n", x.mod.mod.Module, nextSemvers[x.pkg.outBit])
-		for _, y := range x.imps {
+	for _, gm := range goModAbs {
+		fmt.Printf("%s %v\n", gm.mod.mod.Module, nextSemvers[gm.pkg.outBit])
+		out, msg, err := gm.gomodRequireReplace(cfg.cfg, nextSemvers)
+		if err != nil {
+			fmt.Printf("%s, %s %v\n", string(out), msg, err)
+			return err
+		}
+		for _, y := range gm.imps {
 			fmt.Printf("   %s %v\n", y.mod.mod.Module, nextSemvers[y.pkg.outBit])
 		}
 	}
+	//
+	// for _, gm := range goModAbs {
+	// 	for i, _ := range gm.mod.pkgs {
+	for i, _ := range gensByOut {
+		pkg := gensByOut[i]
+		if pkg.mod {
+			for _, pod := range cfg.cfg.PluginOutputDir {
+				_, dirtyFiles, err := isDirty(cfg.OutputDir, pod.Path, pkg.outBit)
+				if err != nil {
+					return err
+				}
+				err = addNtag(cfg.OutputDir, pod.Path, pkg.outBit, dirtyFiles, nextSemvers[pkg.outBit], pkg.mod, remote, desc)
+				// fmt.Printf("%s %v\n", pkg.outBit, dirtyFiles)
+			}
+		}
+	}
+	for i, _ := range gensByOut {
+		pkg := gensByOut[i]
+		if !pkg.mod {
+			for _, pod := range cfg.cfg.PluginOutputDir {
+				_, dirtyFiles, err := isDirty(cfg.OutputDir, pod.Path, pkg.outBit)
+				if err != nil {
+					return err
+				}
+				err = addNtag(cfg.OutputDir, pod.Path, pkg.outBit, dirtyFiles, nextSemvers[pkg.outBit], pkg.mod, remote, desc)
+				// fmt.Printf("%s %v\n", pkg.outBit, dirtyFiles)
+			}
+		}
+	}
+	//
 
 	// for k, v := range nextSemvers {
 	// 	fmt.Printf("%s %+v\n", k, v)

@@ -9,7 +9,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"sort"
 	"strconv"
 	"strings"
 
@@ -17,25 +16,6 @@ import (
 	"github.com/golangq/q"
 	"github.com/wxio/godna/pb/dna/config"
 )
-
-type Src struct {
-	gomodPaths []string
-}
-
-type cfg2src struct {
-	packages     map[string]*pkage
-	dir2pkg      map[string]*pkage
-	pkgWalkOrder pkgSorter
-	// sems         map[string]map[int64]Semvers
-	// // taglead/vX
-	// nextsems   map[string]Semver
-	longestStr int
-	// // localName    map[string]struct{}
-	// generators    []generator
-	// relOutDir     map[string]struct{}
-	// dirtyMods     []*dirtyMod
-	// taglead2dirty map[string]*dirtyMod
-}
 
 type goMods struct {
 	Modules []goMod
@@ -151,6 +131,34 @@ func (in *goMods) collectGomods(cfg *Config) error {
 		return err
 	}
 	return nil
+}
+
+func describe(src string) (remote string, desc string) {
+	{ //
+		cmd := exec.Command("git")
+		cmd.Dir = filepath.Join(src)
+		args := []string{"remote", "get-url", "origin"}
+		cmd.Args = append(cmd.Args, args...)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			q.Q(err)
+		} else {
+			remote = strings.TrimSpace(string(out))
+		}
+	} //
+	{ //
+		cmd := exec.Command("git")
+		cmd.Dir = filepath.Join(src)
+		args := []string{"describe", "--always", "--dirty"}
+		cmd.Args = append(cmd.Args, args...)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			q.Q(err)
+		} else {
+			desc = strings.TrimSpace(string(out))
+		}
+	} //
+	return
 }
 
 var goPkgOptRe = regexp.MustCompile(`(?m)^option go_package = (.*);`)
@@ -405,163 +413,104 @@ func isDirty(outDir string, podPath string, outBit string) (dirty bool, files []
 	return
 }
 
-func gomodRequireReplace() {
-
+func (gm *goModAbsOut) gomodRequireReplace(in *config.Config, nextSemvers pkgrel2next) ([]byte, string, error) {
+	for _, k := range in.Require {
+		cmd := exec.Command("go")
+		cmd.Dir = gm.pkg.absOut
+		cmd.Env = append(os.Environ(), "GO111MODULE=on")
+		args := []string{
+			"mod",
+			"edit",
+			"-require=" + k,
+		}
+		cmd.Args = append(cmd.Args, args...)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			log.Warningf("ERROR:\n  cmd:%v\n  out:%v   \n   err:%v\n", cmd.Args, string(out), err)
+			return out, "error", err
+		}
+	}
+	for _, d := range gm.imps {
+		cmd := exec.Command("go")
+		cmd.Dir = gm.pkg.absOut
+		cmd.Env = append(os.Environ(), "GO111MODULE=on")
+		sem := nextSemvers[d.pkg.outBit]
+		relPath := strings.Repeat("../", strings.Count(gm.pkg.outBit, "/")+1)
+		args := []string{
+			"mod",
+			"edit",
+			"-require=" + d.mod.mod.Module + "@" + sem.String(),
+			"-replace=" + d.mod.mod.Module + "=" + relPath + d.pkg.outBit,
+		}
+		cmd.Args = append(cmd.Args, args...)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			log.Warningf("ERROR:\n  cmd:%v\n  out:%v   \n   err:%v\n", cmd.Args, string(out), err)
+			return out, "error", err
+		}
+	}
+	//
+	cmd := exec.Command("go")
+	cmd.Dir = gm.pkg.absOut
+	cmd.Env = append(os.Environ(), "GO111MODULE=on")
+	args := []string{
+		"mod",
+		"tidy",
+	}
+	cmd.Args = append(cmd.Args, args...)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		log.Warningf("ERROR:\n  cmd:%v\n  out:%v   \n   err:%v\n", cmd.Args, string(out), err)
+		return out, "error", err
+	}
+	return nil, "", nil
 }
 
-func Cfg2Src(in config.Config, resp *Src) error {
-	proc := &cfg2src{
-		packages:     map[string]*pkage{},
-		dir2pkg:      map[string]*pkage{},
-		pkgWalkOrder: pkgSorter{},
-		longestStr:   0,
-	}
-	walkCollectGoMods := func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		if !info.Mode().IsRegular() || filepath.Base(path) != "go.mod" {
-			return nil
-		}
-		if rel, err := filepath.Rel(in.SrcDir, filepath.Dir(path)); err != nil {
-			return err
-		} else {
-			resp.gomodPaths = append(resp.gomodPaths, rel)
-		}
+func addNtag(outDir string, podPath string, outBit string, files []string, sem Semver, mod bool, remote, desc string) error {
+	if len(files) == 0 {
 		return nil
 	}
-	if err := filepath.Walk(in.SrcDir, walkCollectGoMods); err != nil {
-		return err
-	}
-
-	walkFnSrcDir := func(path string, info os.FileInfo, err error) error {
+	{
+		cmd := exec.Command("git")
+		cmd.Dir = filepath.Join(outDir, podPath, outBit)
+		args := []string{
+			"add",
+		}
+		args = append(args, files...)
+		cmd.Args = append(cmd.Args, args...)
+		// fmt.Printf("git %+v\n", cmd.Args)
+		fmt.Printf("wd: %s cmd:%v\n", cmd.Dir, cmd.Args)
+		out, err := cmd.CombinedOutput()
 		if err != nil {
+			fmt.Printf("%s\n", string(out))
 			return err
 		}
-		if !info.Mode().IsRegular() || !strings.HasSuffix(path, ".proto") {
-			return nil
-		}
-		if rel, err := filepath.Rel(in.SrcDir, path); err != nil {
+	}
+	{
+		cmd := exec.Command("git")
+		cmd.Dir = filepath.Join(outDir, podPath, outBit)
+		args := []string{"commit", "-m", remote + " " + desc}
+		args = append(args, files...)
+		cmd.Args = append(cmd.Args, args...)
+		// fmt.Printf("git %+v\n", cmd.Args)
+		fmt.Printf("wd: %s cmd:%v\n", cmd.Dir, cmd.Args)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			fmt.Printf("%s\n", string(out))
 			return err
-		} else {
-			// TODO make sure there are no v2 files in v1 (root) dir
-			// TODO make sure the are no vX in vY directory
-			content, err := ioutil.ReadFile(path)
-			if err != nil {
-				return err
-			}
-			var pkgName string
-			if match := goPkgOptRe.FindSubmatch(content); len(match) > 0 {
-				pn, err := strconv.Unquote(string(match[1]))
-				if err != nil {
-					return err
-				}
-				pkgName = pn
-			}
-			if p := strings.IndexRune(pkgName, ';'); p > 0 {
-				pkgName = pkgName[:p]
-			}
-			if pkgName == "" {
-				return fmt.Errorf("No package in file %s\n", path)
-			}
-			thisPkg, ex := proc.packages[pkgName]
-			if !ex {
-				thisPkg = &pkage{
-					gopkg:        pkgName,
-					replacements: make(map[string]*pkage),
-				}
-				proc.packages[pkgName] = thisPkg
-				proc.pkgWalkOrder = append(proc.pkgWalkOrder, thisPkg)
-				if len(pkgName) > proc.longestStr {
-					proc.longestStr = len(pkgName)
-				}
-			}
-			//
-			protoImportMatch := protoImportRe.FindAllSubmatch(content, -1)
-			imps := []string{}
-			for _, m := range protoImportMatch {
-				imps = append(imps, string(m[1]))
-			}
-			fi := file{rel, imps}
-			thisPkg.files = append(thisPkg.files, fi)
-			return nil
 		}
 	}
-	if err := filepath.Walk(in.SrcDir, walkFnSrcDir); err != nil {
-		return err
+	if mod {
+		cmd := exec.Command("git")
+		cmd.Dir = filepath.Join(outDir, podPath, outBit)
+		args := []string{
+			"tag",
+			podPath + "/" + outBit + "/" + sem.String(),
+		}
+		cmd.Args = append(cmd.Args, args...)
+		fmt.Printf("wd: %s cmd:%v\n", cmd.Dir, cmd.Args)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			fmt.Printf("%s\n", string(out))
+			return err
+		}
 	}
-	// q.Q(in.localName)
-	sort.Sort(proc.pkgWalkOrder)
-	for _, pkg := range proc.pkgWalkOrder {
-		// in.goModReplacements(pkg)
-		proc.pkgDir(in, pkg.gopkg)
-	}
-	for _, pkg := range proc.pkgWalkOrder {
-		// in.goModReplacements(pkg)
-		proc.pkgImports(in, pkg.gopkg)
-	}
-
 	return nil
-}
-
-func (in *cfg2src) pkgDir(cfg config.Config, pkg string) {
-	tpkg := in.packages[pkg]
-	fnames := tpkg.files
-	dirns := make(map[string]struct{})
-	dirn := ""
-	for _, fn := range fnames {
-		dirns[filepath.Dir(fn.name)] = struct{}{}
-		dirn = filepath.Dir(fn.name)
-	}
-	if len(dirns) != 1 {
-		log.Errorf("error files with same go package in more than one dir: %s\n", fnames)
-		os.Exit(1)
-	}
-	tpkg.dirn = dirn
-	in.dir2pkg[dirn] = tpkg
-	{ //
-		cmd := exec.Command("git")
-		cmd.Dir = filepath.Join(cfg.SrcDir, dirn)
-		args := []string{"remote", "get-url", "origin"}
-		cmd.Args = append(cmd.Args, args...)
-		out, err := cmd.CombinedOutput()
-		if err != nil {
-			q.Q(err)
-		} else {
-			tpkg.source = strings.TrimSpace(string(out))
-		}
-	} //
-	{ //
-		cmd := exec.Command("git")
-		cmd.Dir = filepath.Join(cfg.SrcDir, dirn)
-		args := []string{"describe", "--always", "--dirty"}
-		cmd.Args = append(cmd.Args, args...)
-		out, err := cmd.CombinedOutput()
-		if err != nil {
-			q.Q(err)
-		} else {
-			tpkg.gitDescribe = strings.TrimSpace(string(out))
-		}
-	} //
-}
-
-func (in *cfg2src) pkgImports(cfg config.Config, pkg string) {
-	tpkg := in.packages[pkg]
-	for _, fn := range tpkg.files {
-		for _, imp := range fn.protoImport {
-			if strings.HasPrefix(imp, tpkg.dirn) {
-				continue
-			}
-			for _, rel := range cfg.RelImps {
-				if strings.HasPrefix(imp, rel) {
-					if !strings.Contains(imp, "/") {
-						dep := in.dir2pkg[imp]
-						tpkg.replacements[imp] = dep
-					} else {
-					}
-				} else {
-				}
-			}
-		}
-	}
 }
