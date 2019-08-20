@@ -1,0 +1,31 @@
+host_owner: "github.com/wxio"
+repo_name: "godna"
+src_dir    : "$HOME/go/src/github.com/wxio/dna"
+includes  : [
+	"..",
+	"../dna/vendor/googleapis",
+	"../dna/vendor/grpc_gateway"
+ ]
+rel_imps   : "service-"
+require   : "github.com/micro/go-micro@v1.7.0"
+plugin_output_dir : <
+	path: "pb"
+	out_type: GO_MODS
+	generator : < plugin : < go : < 
+		plugins: Grpc
+		paths: Source_Relative
+	>>>
+	generator : < plugin : < micro : < 
+		paths: Source_Relative
+	>>>
+	generator : < plugin : < grpc_gateway : < 
+		paths: Source_Relative
+		register_func_suffix: "GW"
+	>>>
+>
+plugin_output_dir : <
+	path: "opai"
+	generator : < plugin : < swagger : < 
+		logtostderr: true
+	>>>
+>
