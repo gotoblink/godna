@@ -79,19 +79,22 @@ func (cfg *Config) Run() error {
 	//
 	gomods2 := []goModPlus{}
 	fmt.Println("----------")
-	for _, x := range gomods.Modules {
+	for i, _ := range gomods.Modules {
+		gomod := gomods.Modules[i]
 		// fmt.Printf("%s\n", x)
-		pfs, err := x.collectFiles(cfg)
+		pfs, err := gomod.collectFiles(cfg)
 		if err != nil {
 			return err
 		}
-		mods, err := pfs.collectModules(x.RelDir, x.Module)
+		mods, err := pfs.collectModules(gomod)
 		if err != nil {
 			return err
 		}
-		gomods2 = append(gomods2, goModPlus{x, mods})
+		mp := goModPlus{gomod, mods}
+		gomods2 = append(gomods2, mp)
 	}
-	//
+	modMap := map[string]*goModAbsOut{}
+	goModAbs := goModAbsOutBy{}
 	gensByOut := []goPkgAbsOut{}
 	for _, modp := range gomods2 {
 		for _, pkg := range modp.pkgs {
@@ -101,21 +104,57 @@ func (cfg *Config) Run() error {
 				if err != nil {
 					return err
 				}
-				gensByOut = append(gensByOut, goPkgAbsOut{
+				ismod := pod.OutType == config.Config_PluginOutDir_GO_MODS && modp.mod.Module == pkg.Package
+				gensPkg := goPkgAbsOut{
 					absOut: absOut,
 					outBit: outBit,
 					pkg:    pkg,
-					mod:    pod.OutType == config.Config_PluginOutDir_GO_MODS && modp.mod.Module == pkg.Package,
-				})
+					mod:    ismod,
+				}
+				gensByOut = append(gensByOut, gensPkg)
+				if ismod {
+					gomod := goModAbsOut{
+						mod:  modp,
+						pkg:  &gensPkg,
+						imps: nil,
+					}
+					goModAbs = append(goModAbs, &gomod)
+					modMap[outBit] = &gomod
+				}
 			}
 		}
 	}
+	//
+	for i, _ := range goModAbs {
+		gomodabs := goModAbs[i]
+		for _, pkg := range gomodabs.mod.pkgs {
+			for _, imp := range pkg.Imports {
+				gimp, ex := modMap[imp]
+				if !ex {
+					fmt.Printf("no local pkg %v\n", imp)
+				} else {
+					fmt.Printf("LOCAL pkg %v\n", imp)
+					gomodabs.imps = append(gomodabs.imps, gimp)
+				}
+			}
+		}
+		goModAbs[i] = gomodabs
+	}
+	//
+	// sort.Sort(goModAbs)
+	// for _, x := range goModAbs {
+	// 	fmt.Printf("%s\n", x.mod.mod.Module)
+	// 	for _, y := range x.imps {
+	// 		fmt.Printf("   %s\n", y.mod.mod.Module)
+	// 	}
+	// }
 	//
 	for _, pkg := range gensByOut {
 		// protoc
 		for _, pod := range cfg.cfg.PluginOutputDir {
 			for _, gen := range pod.Generator {
-				if err = protoc(pkg.pkg, cfg.cfg.SrcDir, pkg.absOut, pod, gen, cfg.cfg.Includes); err != nil {
+				if msg, err := protoc(pkg.pkg, cfg.cfg.SrcDir, pkg.absOut, pod, gen, cfg.cfg.Includes); err != nil {
+					fmt.Println(msg)
 					return err
 				}
 			}
@@ -165,11 +204,16 @@ func (cfg *Config) Run() error {
 		}
 	}
 	//
+	// sort.Sort(gensByOut)
 	// for _, pkg := range gensByOut {
-	// 	for _, pod := range cfg.cfg.PluginOutputDir {
-
-	// 	}
+	// 	fmt.Printf("%s %20v\n", pkg.pkg.Package, pkg.pkg.Imports)
 	// }
+	for _, x := range goModAbs {
+		fmt.Printf("%s %v\n", x.mod.mod.Module, nextSemvers[x.pkg.outBit])
+		for _, y := range x.imps {
+			fmt.Printf("   %s %v\n", y.mod.mod.Module, nextSemvers[y.pkg.outBit])
+		}
+	}
 
 	for k, v := range nextSemvers {
 		fmt.Printf("%s %+v\n", k, v)

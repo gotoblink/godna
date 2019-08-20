@@ -68,18 +68,29 @@ type goModPlus struct {
 	pkgs []goModWithFilesImports
 }
 
-type goModOutdir struct {
-	RelDir    string
-	Module    string
-	OutDirAbs string
-	pkgs      []struct {
-		ContainingMod string
-		RelDir        string
-		OutDirAbs     string
-		Package       string
-		Files         []string
-		Imports       []string
+type goModAbsOutBy []*goModAbsOut
+
+func (a goModAbsOutBy) Len() int      { return len(a) }
+func (a goModAbsOutBy) Swap(i, j int) { a[i], a[j] = a[j], a[i] }
+func (a goModAbsOutBy) Less(i, j int) bool {
+	depSet := map[string]struct{}{}
+	a[i].collect("", depSet)
+	// fmt.Printf("a:%s\nb:%s\n", a[i].mod.mod.Module, a[j].mod.mod.Module)
+	// fmt.Printf("--%v\n", depSet)
+	if _, ex := depSet[a[j].mod.mod.Module]; ex {
+		// fmt.Printf("TRUE\n\n")
+		return false
 	}
+	return true
+	// fmt.Printf("FALSE %v\n\n", a[i].mod.mod.Module < a[j].mod.mod.Module)
+	// return a[i].mod.mod.Module < a[j].mod.mod.Module
+	// return false
+}
+
+type goModAbsOut struct {
+	mod  goModPlus
+	pkg  *goPkgAbsOut
+	imps []*goModAbsOut
 }
 
 type goPkgAbsOut struct {
@@ -90,6 +101,20 @@ type goPkgAbsOut struct {
 	// pod    *config.Config_PluginOutDir
 	pkg goModWithFilesImports
 	mod bool
+}
+
+func (mod goModAbsOut) collect(indent string, depSet map[string]struct{}) []*goModAbsOut {
+	deps := []*goModAbsOut{}
+	for _, dep := range mod.imps {
+		fmt.Printf("%s-- %s\n", indent, dep.mod.mod.Module)
+		if _, ex := depSet[dep.mod.mod.Module]; ex {
+			continue
+		}
+		deps = append(deps, dep)
+		depSet[dep.mod.mod.Module] = struct{}{}
+		deps = append(deps, dep.collect(indent+"  ", depSet)...)
+	}
+	return deps
 }
 
 type pkgrel2next map[string]Semver
@@ -183,7 +208,7 @@ func (in *goMod) collectFiles(cfg *Config) (*protoFiles, error) {
 	return pfs, nil
 }
 
-func (in protoFiles) collectModules(rel string, curmod string) ([]goModWithFilesImports, error) {
+func (in protoFiles) collectModules(gomod goMod) ([]goModWithFilesImports, error) {
 	mods := map[string]*goModWithFilesImports{}
 	imports := map[string]map[string]bool{}
 	for _, file := range in.Files {
@@ -191,8 +216,8 @@ func (in protoFiles) collectModules(rel string, curmod string) ([]goModWithFiles
 		var ex bool
 		if mod, ex = mods[file.Module]; !ex {
 			mod = &goModWithFilesImports{
-				RelDir:        rel,
-				ContainingMod: curmod,
+				RelDir:        gomod.RelDir,
+				ContainingMod: gomod.Module,
 				Package:       file.Module,
 			}
 			mods[file.Module] = mod
@@ -211,8 +236,8 @@ func (in protoFiles) collectModules(rel string, curmod string) ([]goModWithFiles
 	}
 	ret := []goModWithFilesImports{}
 	for _, mod := range mods {
-		if !strings.HasPrefix(mod.Package, curmod) {
-			return nil, fmt.Errorf("not contained in module %v %v", mod.Package, curmod)
+		if !strings.HasPrefix(mod.Package, gomod.Module) {
+			return nil, fmt.Errorf("not contained in module %v %v", mod.Package, gomod.Module)
 		}
 		ret = append(ret, *mod)
 	}
@@ -313,7 +338,7 @@ func absOut_Mk_CpMod(in goModWithFilesImports, pod *config.Config_PluginOutDir, 
 	return outAbs, outbit, nil
 }
 
-func protoc(in goModWithFilesImports, srcdir string, outAbs string, pod *config.Config_PluginOutDir, gen *config.Config_Generator, includes []string) error {
+func protoc(in goModWithFilesImports, srcdir string, outAbs string, pod *config.Config_PluginOutDir, gen *config.Config_Generator, includes []string) (message string, e error) {
 	cmd := exec.Command("protoc")
 	plg := protocGenerator(outAbs, gen)
 	args := []string{plg}
@@ -322,7 +347,7 @@ func protoc(in goModWithFilesImports, srcdir string, outAbs string, pod *config.
 	for _, inc := range includes {
 		incAbs, err := filepath.Abs(inc)
 		if err != nil {
-			return err
+			return "abs file", err
 		}
 		args = append(args, "-I"+incAbs)
 	}
@@ -339,7 +364,7 @@ func protoc(in goModWithFilesImports, srcdir string, outAbs string, pod *config.
 		q.Q(scmd)
 		q.Q(sout)
 	}
-	return err
+	return fmt.Sprintf("wd: %s\ncmd %v\nmsg:%s\n", srcdir, cmd.Args, string(out)), err
 }
 
 func isDirty(outDir string, podPath string, outBit string) (dirty bool, files []string, e error) {
@@ -361,7 +386,6 @@ func isDirty(outDir string, podPath string, outBit string) (dirty bool, files []
 	scan := bufio.NewScanner(bytes.NewBuffer(out))
 	for scan.Scan() {
 		line := scan.Text()
-		//here add
 		if len(line) > 3 {
 			fname := line[3:]
 			if line[0] == 'R' {
@@ -371,32 +395,12 @@ func isDirty(outDir string, podPath string, outBit string) (dirty bool, files []
 			if ignoreGitStatus.MatchString(fname) {
 				continue
 			}
-			// cmd := exec.Command("git")
-			// cmd.Dir = wordDir
-			// args := []string{}
-			// if line[1] != ' ' {
-			// 	args = []string{
-			// 		"add",
-			// 		fname,
-			// 	}
-			// } else {
-			// 	continue
-			// }
-			// cmd.Args = append(cmd.Args, args...)
-			// // fmt.Printf("git %+v\n", cmd.Args)
-			// out, err := cmd.CombinedOutput()
-			// if err != nil {
-			// 	log.Warningf("ERROR:\n  cwd:%v\n  cmd:%v\n  out:%v   \n   err:%v\n", cmd.Dir, cmd.Args, string(out), err)
-			// 	return err
-			// }
 			files = append(files, fname)
 			dirty = true
 		} else {
 			q.Q(line)
 			log.Warning("3?")
 		}
-		// dirty = true
-		// found = append(found, line)
 	}
 	return
 }
