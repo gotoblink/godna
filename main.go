@@ -140,6 +140,11 @@ func (cfg *Config) Run() error {
 		}
 		goModAbs[i] = gomodabs
 	}
+	for i, _ := range goModAbs {
+		gomodabs := goModAbs[i]
+		deps := gomodabs.collect("", map[string]struct{}{})
+		gomodabs.imps = deps
+	}
 	//
 	// sort.Sort(goModAbs)
 	// for _, x := range goModAbs {
@@ -215,9 +220,9 @@ func (cfg *Config) Run() error {
 		}
 	}
 
-	for k, v := range nextSemvers {
-		fmt.Printf("%s %+v\n", k, v)
-	}
+	// for k, v := range nextSemvers {
+	// 	fmt.Printf("%s %+v\n", k, v)
+	// }
 	// fmt.Printf("%+v\n", nextSemvers)
 	// for _, modp := range gomods2 {
 	// 	fmt.Printf("%s\n", modp.mod)
