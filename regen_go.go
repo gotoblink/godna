@@ -89,140 +89,6 @@ type file struct {
 	protoImport []string
 }
 
-func (in *regen) Run() error {
-	var err error
-	in.SrcDir, err = filepath.Abs(in.SrcDir)
-	if err != nil {
-		return err
-	}
-	for i, inc := range in.Includes {
-		in.Includes[i], err = filepath.Abs(inc)
-		if err != nil {
-			return err
-		}
-	}
-	in.OutputDir, err = filepath.Abs(in.OutputDir)
-	if err != nil {
-		return err
-	}
-	os.Chdir(in.OutputDir)
-	// fmt.Printf("%+v\n", in)
-	in.packages = make(map[string]*pkage)
-	in.dir2pkg = make(map[string]*pkage)
-	in.taglead2dirty = map[string]*dirtyMod{}
-	// in.localName = make(map[string]struct{})
-	in.relOutDir = make(map[string]struct{})
-	if in.HostOwner == "" {
-		log.Error("--host_owner not set")
-		os.Exit(1)
-	}
-	if in.RepoName == "" {
-		log.Errorf("--repo_name not set")
-		os.Exit(1)
-	}
-	pkgExecs := map[string]pkgExec{
-		"protoc":          in.protoc,
-		"modinit":         in.modinit,
-		"modrequire":      in.modrequire,
-		"modreplace":      in.modreplace,
-		"modtidy":         in.modtidy,
-		"gitdirty":        in.git_dirty,
-		"gitnexttag":      in.git_nexttag,
-		"modrequirelocal": in.modrequirelocal,
-		"gitcommit":       in.git_commit,
-		"gittag":          in.git_tag,
-	}
-	if len(in.Pass) == 0 {
-		in.Pass = []string{
-			"protoc,modinit,modrequire,modreplace",
-			"modtidy",
-			// "gittag",
-			"gitdirty",
-			"gitnexttag",
-			"modrequirelocal",
-			// "gitcommit",
-			// "gittag",
-		}
-	}
-	if len(in.Generator) == 0 {
-		in.Generator = []string{"go=paths=source_relative"}
-	}
-	for _, ges := range in.Generator {
-		name := ges
-		outdir := ""
-		if i := strings.LastIndex(ges, ":"); i > -1 {
-			outdir = ges[i+1:]
-			ges = ges[:i]
-			in.relOutDir[outdir] = struct{}{}
-		} else {
-			in.relOutDir["."] = struct{}{}
-		}
-		if i := strings.Index(ges, "="); i > -1 {
-			name = ges[:i]
-			gen := generator{name: name, outdir: outdir}
-			paramstr := ges[i+1:]
-			params := strings.Split(paramstr, ",")
-			for _, param := range params {
-				kv := strings.Split(param, "=")
-				if len(kv) != 2 {
-					fmt.Printf("Invalid generator, much be of the form 'name[=[key=value][,key=value]*]?' given '%s'", ges)
-				}
-				gen.params = append(gen.params, keyval{kv[0], kv[1]})
-			}
-			in.generators = append(in.generators, gen)
-		} else {
-			gen := generator{name: name, outdir: outdir}
-			in.generators = append(in.generators, gen)
-		}
-	}
-	for dir, _ := range in.relOutDir {
-		out := filepath.Join(in.OutputDir, dir)
-		err := os.MkdirAll(out, os.ModePerm)
-		if err != nil {
-			return err
-		}
-	}
-	if err := filepath.Walk(in.SrcDir, in.walkFnSrcDir); err != nil {
-		log.Error(err)
-		os.Exit(1)
-	}
-	// q.Q(in.localName)
-	sort.Sort(in.pkgWalkOrder)
-	for _, pkg := range in.pkgWalkOrder {
-		// in.goModReplacements(pkg)
-		in.pkgDir(pkg.gopkg)
-	}
-	for _, pkg := range in.pkgWalkOrder {
-		// in.goModReplacements(pkg)
-		in.pkgImports(pkg.gopkg)
-	}
-	in.sems = gitGetTagSemver()
-	for pi, actions := range in.Pass {
-		for _, pkg := range in.pkgWalkOrder {
-			if !strings.HasPrefix(pkg.gopkg, in.HostOwner) {
-				continue
-			}
-			fmt.Printf("pass:%d %s %s", pi+1, pkg.gopkg, strings.Repeat(" ", in.longestStr-len(pkg.gopkg)))
-			for _, ac := range strings.Split(actions, ",") {
-				if acf, ex := pkgExecs[ac]; ex {
-					if out, msg, err := acf(pkg.gopkg); err != nil {
-						log.Errorf("error executing %s: msg: %s %s\n%s", ac, msg, err, out)
-						os.Exit(1)
-					} else {
-						fmt.Printf(" %s:%s", ac, msg)
-					}
-				} else {
-					log.Errorf("action does not exist %s", ac)
-					os.Exit(1)
-				}
-			}
-			fmt.Printf("\n")
-		}
-
-	}
-	return nil
-}
-
 type pkgExec func(pkg string) (out []byte, msg string, err error)
 
 func (in *regen) walkFnSrcDir(path string, info os.FileInfo, err error) error {
@@ -893,6 +759,15 @@ func pkgModVersion(dirname string) int64 {
 	return -1
 }
 
+var relMod = regexp.MustCompile(`^([^/]+)/v(\d+)$`)
+
+func pkgModBase(dirname string) string {
+	if match := relMod.FindStringSubmatch(dirname); len(match) > 0 {
+		return match[1]
+	}
+	return dirname
+}
+
 type Semvers []Semver
 type Semver struct {
 	Major, Minor, Patch int64
@@ -920,9 +795,10 @@ func (a Semvers) Less(i, j int) bool {
 
 var pathSemver = regexp.MustCompile(`^(.+)/v(\d+)\.(\d+)\.(\d+)$`)
 
-func gitGetTagSemver() map[string]map[int64]Semvers {
+func gitGetTagSemver(inside_repo string) (map[string]map[int64]Semvers, error) {
 	ret := map[string]map[int64]Semvers{}
 	cmd := exec.Command("git")
+	cmd.Dir = inside_repo
 	// cmd.Dir = filepath.Join(in.OutputDir, tp.dirn)
 	args := []string{
 		"tag",
@@ -930,8 +806,7 @@ func gitGetTagSemver() map[string]map[int64]Semvers {
 	cmd.Args = append(cmd.Args, args...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		log.Error(err)
-		os.Exit(1)
+		return nil, err
 	}
 	scan := bufio.NewScanner(bytes.NewBuffer(out))
 	for scan.Scan() {
@@ -958,7 +833,7 @@ func gitGetTagSemver() map[string]map[int64]Semvers {
 		}
 		ret[modName] = sems
 	}
-	return ret
+	return ret, nil
 }
 
 var ignoreGitStatus = regexp.MustCompile(`^.*v(\d+)/(.+)?$`)

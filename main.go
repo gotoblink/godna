@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 
 	"github.com/wxio/godna/pb/dna/config"
 
@@ -65,16 +66,17 @@ func (cfg *Config) Run() error {
 	if err != nil {
 		return err
 	}
-
-	// fmt.Printf("'%+v'\n", *cfg.cfg)
-	// resp := &Src{}
-	// if err := Cfg2Src(*cfg.cfg, resp); err != nil {
-	// 	return err
-	// }
+	cfg.OutputDir = os.ExpandEnv(cfg.OutputDir)
+	cfg.OutputDir, err = filepath.Abs(cfg.OutputDir)
+	if err != nil {
+		return err
+	}
+	//
 	gomods := &goMods{}
 	if err := gomods.collectGomods(cfg); err != nil {
 		return err
 	}
+	//
 	gomods2 := []goModPlus{}
 	fmt.Println("----------")
 	for _, x := range gomods.Modules {
@@ -89,32 +91,108 @@ func (cfg *Config) Run() error {
 		}
 		gomods2 = append(gomods2, goModPlus{x, mods})
 	}
+	//
+	gensByOut := []goPkgAbsOut{}
 	for _, modp := range gomods2 {
-		fmt.Printf("%s\n", modp.mod)
 		for _, pkg := range modp.pkgs {
-			fmt.Printf("  %v\n", pkg.Package)
-			for _, fi := range pkg.Files {
-				fmt.Printf("    %v\n", fi)
+			for _, pod := range cfg.cfg.PluginOutputDir {
+				absOut, outBit, err := absOut_Mk_CpMod(pkg, pod, cfg.cfg.SrcDir, cfg.OutputDir)
+				// fmt.Printf("a:%s b:%s p:%s\n", absOut, outBit, pkg.Package)
+				if err != nil {
+					return err
+				}
+				gensByOut = append(gensByOut, goPkgAbsOut{
+					absOut: absOut,
+					outBit: outBit,
+					pkg:    pkg,
+					mod:    pod.OutType == config.Config_PluginOutDir_GO_MODS && modp.mod.Module == pkg.Package,
+				})
 			}
 		}
 	}
-	// for _, y := range mods {
-	// 	fmt.Printf("  %s\n", y)
+	//
+	for _, pkg := range gensByOut {
+		// protoc
+		for _, pod := range cfg.cfg.PluginOutputDir {
+			for _, gen := range pod.Generator {
+				if err = protoc(pkg.pkg, cfg.cfg.SrcDir, pkg.absOut, pod, gen, cfg.cfg.Includes); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	//
+	for i, _ := range gensByOut {
+		pkg := gensByOut[i]
+		if !pkg.mod {
+			continue
+		}
+		for _, pod := range cfg.cfg.PluginOutputDir {
+			if pod.OutType == config.Config_PluginOutDir_GO_MODS {
+				pkg.dirty, pkg.dirtyFiles, err = isDirty(cfg.OutputDir, pod.Path, pkg.outBit)
+				fmt.Printf("%s %v\n", pkg.outBit, pkg.dirtyFiles)
+			}
+		}
+	}
+	//
+	gitTagSemver, err := gitGetTagSemver(cfg.OutputDir)
+	if err != nil {
+		return err
+	}
+	nextSemvers := pkgrel2next{}
+	for _, pkg := range gensByOut {
+		if pkg.mod {
+			major := pkgModVersion(pkg.outBit)
+			if major == -1 {
+				return fmt.Errorf("not version for mod relpath:%s %v", pkg.outBit, pkg)
+			}
+			base := pkgModBase(pkg.pkg.RelDir)
+			if next, ex := gitTagSemver[base]; ex {
+				if cur, ex := next[major]; ex {
+					//TODO check majar ver compatibility
+					sort.Sort(cur)
+					if pkg.dirty {
+						nextSemvers[pkg.outBit] = Semver{cur[0].Major, cur[0].Minor + 1, 0}
+					} else {
+						nextSemvers[pkg.outBit] = cur[0]
+					}
+				} else {
+					nextSemvers[pkg.outBit] = Semver{major, 0, 0}
+				}
+			} else {
+				nextSemvers[pkg.outBit] = Semver{major, 0, 0}
+			}
+		}
+	}
+	//
+	// for _, pkg := range gensByOut {
 	// 	for _, pod := range cfg.cfg.PluginOutputDir {
-	// 		for _, gen := range pod.Generator {
-	// 			if err = y.protoc(cfg.cfg.SrcDir, cfg.OutputDir, pod, gen, cfg.cfg.Includes); err != nil {
-	// 				return err
+
+	// 	}
+	// }
+
+	for k, v := range nextSemvers {
+		fmt.Printf("%s %+v\n", k, v)
+	}
+	// fmt.Printf("%+v\n", nextSemvers)
+	// for _, modp := range gomods2 {
+	// 	fmt.Printf("%s\n", modp.mod)
+	// 	for _, pkg := range modp.pkgs {
+	// 		fmt.Printf("  %v\n", pkg.Package)
+	// 		for _, fi := range pkg.Files {
+	// 			fmt.Printf("    %v\n", fi)
+	// 		}
+	// 		// protoc
+	// 		for _, pod := range cfg.cfg.PluginOutputDir {
+	// 			for _, gen := range pod.Generator {
+	// 				if err = pkg.protoc(cfg.cfg.SrcDir, cfg.OutputDir, pod, gen, cfg.cfg.Includes); err != nil {
+	// 					return err
+	// 				}
 	// 			}
 	// 		}
 	// 	}
 	// }
 
-	fmt.Println("----------")
-	for _, pod := range cfg.cfg.PluginOutputDir {
-		for _, gen := range pod.Generator {
-			fmt.Printf("%s/%s %s %v\n", cfg.OutputDir, pod.Path, pod.OutType, gen)
-		}
-	}
 	return nil
 }
 

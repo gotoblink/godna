@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bufio"
+	"bytes"
 	"fmt"
 	"io/ioutil"
 	"os"
@@ -65,6 +67,32 @@ type goModPlus struct {
 	mod  goMod
 	pkgs []goModWithFilesImports
 }
+
+type goModOutdir struct {
+	RelDir    string
+	Module    string
+	OutDirAbs string
+	pkgs      []struct {
+		ContainingMod string
+		RelDir        string
+		OutDirAbs     string
+		Package       string
+		Files         []string
+		Imports       []string
+	}
+}
+
+type goPkgAbsOut struct {
+	absOut     string
+	outBit     string
+	dirty      bool
+	dirtyFiles []string
+	// pod    *config.Config_PluginOutDir
+	pkg goModWithFilesImports
+	mod bool
+}
+
+type pkgrel2next map[string]Semver
 
 var goModRe = regexp.MustCompile(`^module\s+([^ ]+) *$`)
 
@@ -234,38 +262,59 @@ func protocGenerator(outdir string, gen *config.Config_Generator) string {
 	return ""
 }
 
-func (in goModWithFilesImports) protoc(srcdir string, outroot string, pod *config.Config_PluginOutDir, gen *config.Config_Generator, includes []string) error {
-	cmd := exec.Command("protoc")
-	// basedir := filepath.Dir(in.RelDir)
-	// modname := filepath.Base(in.RelDir)
-	outdir := pod.Path
-	outbit_idx := strings.LastIndex(in.ContainingMod, "/"+outdir+"/")
-	outbit := filepath.Base(in.RelDir)
+func suffix(sa, sb string) string {
+	la, lb := len(sa), len(sb)
+	lo := 0
+	for i := 1; i <= la; i++ {
+		if i >= lb {
+			break
+		}
+		if sa[la-i] == sb[lb-i] {
+			lo++
+		} else {
+			break
+		}
+	}
+	if lo == 0 {
+		return ""
+	}
+	return sa[la-lo+1:]
+}
+
+func absOut_Mk_CpMod(in goModWithFilesImports, pod *config.Config_PluginOutDir, srcdir string, outroot string) (abs string, bit string, e error) {
+	outbit_idx := strings.LastIndex(in.ContainingMod, "/"+pod.Path+"/")
+	outbit := ""
 	if outbit_idx > -1 {
-		outbit = in.ContainingMod[outbit_idx+len(outdir)+1:]
+		outbit = in.ContainingMod[outbit_idx+len(pod.Path)+2:]
 	} else {
-		q.Q(in.ContainingMod, outdir)
+		outbit = suffix(in.RelDir, in.ContainingMod)
 	}
-	outAbs, err := filepath.Abs(filepath.Join(outroot, outdir, outbit))
+	outAbs, err := filepath.Abs(filepath.Join(outroot, pod.Path, outbit))
 	if err != nil {
-		return err
+		return "", outbit, err
 	}
-	os.MkdirAll(outAbs, os.ModePerm)
+	if err = os.MkdirAll(outAbs, os.ModePerm); err != nil {
+		return outAbs, outbit, err
+	}
 	//
 	if in.ContainingMod == in.Package && pod.OutType == config.Config_PluginOutDir_GO_MODS {
 		src := filepath.Join(srcdir, in.RelDir, "go.mod")
 		pwd, _ := os.Getwd()
 		dest := filepath.Join(outAbs, "go.mod")
 		if _, err = os.Open(dest); err != nil {
-			fmt.Printf("$ %s cp %s %s\n", pwd, src, dest)
+			q.Q("$ %s cp %s %s\n", pwd, src, dest)
 			if _, err = filecopy(src, dest); err != nil {
-				return err
+				return outAbs, outbit, err
 			}
 		} else {
-			fmt.Printf("$ %s #cp %s %s\n", pwd, src, dest)
+			q.Q("$ %s #cp %s %s\n", pwd, src, dest)
 		}
 	}
-	//
+	return outAbs, outbit, nil
+}
+
+func protoc(in goModWithFilesImports, srcdir string, outAbs string, pod *config.Config_PluginOutDir, gen *config.Config_Generator, includes []string) error {
+	cmd := exec.Command("protoc")
 	plg := protocGenerator(outAbs, gen)
 	args := []string{plg}
 	// args = append(args, "-I..")
@@ -291,6 +340,69 @@ func (in goModWithFilesImports) protoc(srcdir string, outroot string, pod *confi
 		q.Q(sout)
 	}
 	return err
+}
+
+func isDirty(outDir string, podPath string, outBit string) (dirty bool, files []string, e error) {
+	cmd := exec.Command("git")
+	cmd.Dir = filepath.Join(outDir, podPath, outBit)
+	args := []string{
+		"status",
+		"--porcelain",
+		".",
+	}
+	cmd.Args = append(cmd.Args, args...)
+	// fmt.Printf("git %+v\n", cmd.Args)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		log.Warning(err)
+		return false, nil, err
+	}
+	//
+	scan := bufio.NewScanner(bytes.NewBuffer(out))
+	for scan.Scan() {
+		line := scan.Text()
+		//here add
+		if len(line) > 3 {
+			fname := line[3:]
+			if line[0] == 'R' {
+				fname = fname[strings.Index(fname, " -> ")+4:]
+			}
+			fname = fname[len(podPath)+1+len(outBit)+1:]
+			if ignoreGitStatus.MatchString(fname) {
+				continue
+			}
+			// cmd := exec.Command("git")
+			// cmd.Dir = wordDir
+			// args := []string{}
+			// if line[1] != ' ' {
+			// 	args = []string{
+			// 		"add",
+			// 		fname,
+			// 	}
+			// } else {
+			// 	continue
+			// }
+			// cmd.Args = append(cmd.Args, args...)
+			// // fmt.Printf("git %+v\n", cmd.Args)
+			// out, err := cmd.CombinedOutput()
+			// if err != nil {
+			// 	log.Warningf("ERROR:\n  cwd:%v\n  cmd:%v\n  out:%v   \n   err:%v\n", cmd.Dir, cmd.Args, string(out), err)
+			// 	return err
+			// }
+			files = append(files, fname)
+			dirty = true
+		} else {
+			q.Q(line)
+			log.Warning("3?")
+		}
+		// dirty = true
+		// found = append(found, line)
+	}
+	return
+}
+
+func gomodRequireReplace() {
+
 }
 
 func Cfg2Src(in config.Config, resp *Src) error {
