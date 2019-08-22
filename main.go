@@ -71,6 +71,7 @@ func (cfg *Config) Run() error {
 	if err != nil {
 		return err
 	}
+	fmt.Printf("out %s\n", cfg.OutputDir)
 	//
 	gomods := &goMods{}
 	if err := gomods.collectGomods(cfg); err != nil {
@@ -192,21 +193,28 @@ func (cfg *Config) Run() error {
 			if major == -1 {
 				return fmt.Errorf("not version for mod relpath:%s %v", pkg.outBit, pkg)
 			}
-			base := pkgModBase(pkg.pkg.RelDir)
-			if next, ex := gitTagSemver[base]; ex {
-				if cur, ex := next[major]; ex {
-					//TODO check majar ver compatibility
-					sort.Sort(cur)
-					if pkg.dirty {
-						nextSemvers[pkg.outBit] = Semver{cur[0].Major, cur[0].Minor + 1, 0}
+			for _, pod := range cfg.cfg.PluginOutputDir {
+				base := pod.Path + "/" + pkg.outBit
+				fmt.Printf("base %s\n", base)
+				if next, ex := gitTagSemver[base]; ex {
+					if cur, ex := next[major]; ex {
+						//TODO check majar ver compatibility
+						sort.Sort(cur)
+						if pkg.dirty {
+							nextSemvers[base] = Semver{cur[0].Major, cur[0].Minor + 1, 0}
+							nextSemvers[pkg.outBit] = Semver{cur[0].Major, cur[0].Minor + 1, 0}
+						} else {
+							nextSemvers[base] = cur[0]
+							nextSemvers[pkg.outBit] = cur[0]
+						}
 					} else {
-						nextSemvers[pkg.outBit] = cur[0]
+						nextSemvers[base] = Semver{major, 0, 0}
+						nextSemvers[pkg.outBit] = Semver{major, 0, 0}
 					}
 				} else {
+					nextSemvers[base] = Semver{major, 0, 0}
 					nextSemvers[pkg.outBit] = Semver{major, 0, 0}
 				}
-			} else {
-				nextSemvers[pkg.outBit] = Semver{major, 0, 0}
 			}
 		}
 	}
@@ -237,7 +245,7 @@ func (cfg *Config) Run() error {
 				if err != nil {
 					return err
 				}
-				err = addNtag(cfg.OutputDir, pod.Path, pkg.outBit, dirtyFiles, nextSemvers[pkg.outBit], pkg.mod, remote, desc)
+				err = addNtag(cfg.OutputDir, pod.Path, pkg.outBit, dirtyFiles, nextSemvers[pod.Path+"/"+pkg.outBit], pkg.mod, remote, desc)
 				// fmt.Printf("%s %v\n", pkg.outBit, dirtyFiles)
 			}
 		}
@@ -250,7 +258,7 @@ func (cfg *Config) Run() error {
 				if err != nil {
 					return err
 				}
-				err = addNtag(cfg.OutputDir, pod.Path, pkg.outBit, dirtyFiles, nextSemvers[pkg.outBit], pkg.mod, remote, desc)
+				err = addNtag(cfg.OutputDir, pod.Path, pkg.outBit, dirtyFiles, nextSemvers[pod.Path+"/"+pkg.outBit], pkg.mod, remote, desc)
 				// fmt.Printf("%s %v\n", pkg.outBit, dirtyFiles)
 			}
 		}

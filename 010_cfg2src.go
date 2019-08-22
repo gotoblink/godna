@@ -99,7 +99,7 @@ func (mod goModAbsOut) collect(indent string, depSet map[string]struct{}) []*goM
 
 type pkgrel2next map[string]Semver
 
-var goModRe = regexp.MustCompile(`^module\s+([^ ]+) *$`)
+var goModRe = regexp.MustCompile(`(?m)^module ([^ ]+)$`)
 
 func (in *goMods) collectGomods(cfg *Config) error {
 	walkCollectGoMods := func(path string, info os.FileInfo, err error) error {
@@ -122,7 +122,7 @@ func (in *goMods) collectGomods(cfg *Config) error {
 		if match := goModRe.FindSubmatch(content); len(match) > 0 {
 			gm.Module = strings.TrimSpace(string(match[1]))
 		} else {
-			return fmt.Errorf("no go module found in %s/go.mod", gm.RelDir)
+			return fmt.Errorf("no go module found in %s/go.mod path: %s\n%s\n", gm.RelDir, path, string(content))
 		}
 		in.Modules = append(in.Modules, gm)
 		return nil
@@ -487,7 +487,6 @@ func addNtag(outDir string, podPath string, outBit string, files []string, sem S
 		cmd := exec.Command("git")
 		cmd.Dir = filepath.Join(outDir, podPath, outBit)
 		args := []string{"commit", "-m", remote + " " + desc}
-		args = append(args, files...)
 		cmd.Args = append(cmd.Args, args...)
 		// fmt.Printf("git %+v\n", cmd.Args)
 		fmt.Printf("wd: %s cmd:%v\n", cmd.Dir, cmd.Args)
