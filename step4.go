@@ -17,6 +17,14 @@ import (
 	"github.com/wxio/godna/pb/dna/config"
 )
 
+func (proc *Step4) Process(rootOutDir string, cfg *config.Config) (string, error) {
+	err := step4(proc.step3.Pkgs, rootOutDir, cfg)
+	if err != nil {
+		return "", err
+	}
+	return "", nil
+}
+
 func step4(gensByOut []*goPkgAbsOut, rootOutDir string, cfg *config.Config) error {
 	for _, pkg := range gensByOut {
 		// protoc

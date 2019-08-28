@@ -1,7 +1,18 @@
 package main
 
-type goMods struct {
+type Step1 struct {
 	Modules []goMod
+}
+type Step2 struct {
+	step1   Step1
+	Modules []*goModPlus
+}
+type Step3 struct {
+	step2 Step2
+	Pkgs  []*goPkgAbsOut
+}
+type Step4 struct {
+	step3 Step3
 }
 
 type goMod struct {

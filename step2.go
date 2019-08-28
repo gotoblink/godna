@@ -8,7 +8,18 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/wxio/godna/pb/dna/config"
 )
+
+func (proc *Step2) Process(rootOutDir string, cfg *config.Config) (string, error) {
+	mp, err := step2(cfg.SrcDir, proc.step1.Modules)
+	if err != nil {
+		return "", err
+	}
+	proc.Modules = mp
+	return "", nil
+}
 
 // collectFilesAndImports
 func step2(srcDir string, modules []goMod) ([]*goModPlus, error) {

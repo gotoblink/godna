@@ -9,6 +9,15 @@ import (
 	"github.com/wxio/godna/pb/dna/config"
 )
 
+func (proc *Step3) Process(rootOutDir string, cfg *config.Config) (string, error) {
+	mp, err := step3(proc.step2.Modules, rootOutDir, cfg)
+	if err != nil {
+		return "", err
+	}
+	proc.Pkgs = mp
+	return "", nil
+}
+
 func step3(gomods2 []*goModPlus, rootOutDir string, cfg *config.Config) ([]*goPkgAbsOut, error) {
 	modMap := map[string]*goPkgAbsOut{}
 	// goModAbs := goModAbsOutBy{}

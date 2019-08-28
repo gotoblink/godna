@@ -57,55 +57,23 @@ func (cfg *Config) Run() error {
 		return err
 	}
 	//
-	gomods, err := step1(cfg)
-	if err != nil {
+	gomods := &Step1{}
+	if _, err = gomods.Process(cfg.OutputDir, cfg.cfg); err != nil {
 		return err
 	}
 	//
-	gomods2, err := step2(cfg.cfg.SrcDir, gomods.Modules)
-	if err != nil {
+	gomods2 := &Step2{step1: *gomods}
+	if _, err = gomods2.Process(cfg.OutputDir, cfg.cfg); err != nil {
 		return err
 	}
-	gensByOut, err := step3(gomods2, cfg.OutputDir, cfg.cfg)
-	if err != nil {
+	pkgs := &Step3{step2: *gomods2}
+	if _, err = pkgs.Process(cfg.OutputDir, cfg.cfg); err != nil {
 		return err
 	}
-	// //
-	// // sort.Sort(goModAbs)
-	// // for _, x := range goModAbs {
-	// // 	fmt.Printf("%s\n", x.mod.mod.Module)
-	// // 	for _, y := range x.imps {
-	// // 		fmt.Printf("   %s\n", y.mod.mod.Module)
-	// // 	}
-	// // }
-	// //
-	err = step4(gensByOut, cfg.OutputDir, cfg.cfg)
-	if err != nil {
+	st4 := &Step4{step3: *pkgs}
+	if _, err = st4.Process(cfg.OutputDir, cfg.cfg); err != nil {
 		return err
 	}
-	//
-
-	// for k, v := range nextSemvers {
-	// 	fmt.Printf("%s %+v\n", k, v)
-	// }
-	// fmt.Printf("%+v\n", nextSemvers)
-	// for _, modp := range gomods2 {
-	// 	fmt.Printf("%s\n", modp.mod)
-	// 	for _, pkg := range modp.pkgs {
-	// 		fmt.Printf("  %v\n", pkg.Package)
-	// 		for _, fi := range pkg.Files {
-	// 			fmt.Printf("    %v\n", fi)
-	// 		}
-	// 		// protoc
-	// 		for _, pod := range cfg.cfg.PluginOutputDir {
-	// 			for _, gen := range pod.Generator {
-	// 				if err = pkg.protoc(cfg.cfg.SrcDir, cfg.OutputDir, pod, gen, cfg.cfg.Includes); err != nil {
-	// 					return err
-	// 				}
-	// 			}
-	// 		}
-	// 	}
-	// }
 
 	return nil
 }

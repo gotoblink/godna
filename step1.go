@@ -7,10 +7,19 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/wxio/godna/pb/dna/config"
 )
 
-func step1(cfg *Config) (*goMods, error) {
-	gomods := &goMods{}
+func (proc *Step1) Process(rootOutDir string, cfg *config.Config) (string, error) {
+	if err := proc.collectGomods(cfg); err != nil {
+		return "", err
+	}
+	return "", nil
+}
+
+func step1(cfg *config.Config) (*Step1, error) {
+	gomods := &Step1{}
 	if err := gomods.collectGomods(cfg); err != nil {
 		return nil, err
 	}
@@ -19,7 +28,7 @@ func step1(cfg *Config) (*goMods, error) {
 
 var goModRe = regexp.MustCompile(`(?m)^module ([^ ]+)$`)
 
-func (in *goMods) collectGomods(cfg *Config) error {
+func (in *Step1) collectGomods(cfg *config.Config) error {
 	walkCollectGoMods := func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
@@ -28,7 +37,7 @@ func (in *goMods) collectGomods(cfg *Config) error {
 			return nil
 		}
 		gm := goMod{}
-		if rel, err := filepath.Rel(cfg.cfg.SrcDir, filepath.Dir(path)); err != nil {
+		if rel, err := filepath.Rel(cfg.SrcDir, filepath.Dir(path)); err != nil {
 			return err
 		} else {
 			gm.RelDir = rel
@@ -45,7 +54,7 @@ func (in *goMods) collectGomods(cfg *Config) error {
 		in.Modules = append(in.Modules, gm)
 		return nil
 	}
-	if err := filepath.Walk(cfg.cfg.SrcDir, walkCollectGoMods); err != nil {
+	if err := filepath.Walk(cfg.SrcDir, walkCollectGoMods); err != nil {
 		return err
 	}
 	return nil
