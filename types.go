@@ -31,31 +31,6 @@ type goModPlus struct {
 	pkgs []goModWithFilesImports
 }
 
-// type goModAbsOutBy []*goModAbsOut
-
-// func (a goModAbsOutBy) Len() int      { return len(a) }
-// func (a goModAbsOutBy) Swap(i, j int) { a[i], a[j] = a[j], a[i] }
-// func (a goModAbsOutBy) Less(i, j int) bool {
-// 	depSet := map[string]struct{}{}
-// 	a[i].collect("", depSet)
-// 	// fmt.Printf("a:%s\nb:%s\n", a[i].mod.mod.Module, a[j].mod.mod.Module)
-// 	// fmt.Printf("--%v\n", depSet)
-// 	if _, ex := depSet[a[j].mod.mod.Module]; ex {
-// 		// fmt.Printf("TRUE\n\n")
-// 		return false
-// 	}
-// 	return true
-// 	// fmt.Printf("FALSE %v\n\n", a[i].mod.mod.Module < a[j].mod.mod.Module)
-// 	// return a[i].mod.mod.Module < a[j].mod.mod.Module
-// 	// return false
-// }
-
-type goModAbsOut struct {
-	mod  goModPlus
-	pkg  *goPkgAbsOut
-	imps []*goModAbsOut
-}
-
 type goPkgAbsOut struct {
 	module     *goModPlus
 	absOut     string
