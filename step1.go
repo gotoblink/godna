@@ -12,6 +12,9 @@ import (
 )
 
 func (proc *Step1) Process(rootOutDir string, cfg *config.Config) (string, error) {
+	fmt.Printf(`Step 1
+============================
+`)
 	if err := proc.collectGomods(cfg); err != nil {
 		return "", err
 	}

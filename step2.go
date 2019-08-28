@@ -13,6 +13,9 @@ import (
 )
 
 func (proc *Step2) Process(rootOutDir string, cfg *config.Config) (string, error) {
+	fmt.Printf(`Step 2
+============================
+`)
 	mp, err := step2(cfg.SrcDir, proc.step1.Modules)
 	if err != nil {
 		return "", err

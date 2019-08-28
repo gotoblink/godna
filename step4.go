@@ -18,6 +18,9 @@ import (
 )
 
 func (proc *Step4) Process(rootOutDir string, cfg *config.Config) (string, error) {
+	fmt.Printf(`Step 4
+============================
+`)
 	err := step4(proc.step3.Pkgs, rootOutDir, cfg)
 	if err != nil {
 		return "", err
@@ -38,6 +41,10 @@ func step4(gensByOut []*goPkgAbsOut, rootOutDir string, cfg *config.Config) erro
 		}
 	}
 	//
+	fmt.Printf(
+		`	Directly Dirty
+	============================
+`)
 	for i, _ := range gensByOut {
 		pkg := gensByOut[i]
 		if !pkg.mod {
@@ -47,7 +54,9 @@ func step4(gensByOut []*goPkgAbsOut, rootOutDir string, cfg *config.Config) erro
 			if pod.OutType == config.Config_PluginOutDir_GO_MODS {
 				// var err error
 				pkg.dirty, pkg.dirtyFiles, _ = isDirty(rootOutDir, pod.Path, pkg.outBit)
-				fmt.Printf("%s %v\n", pkg.outBit, pkg.dirtyFiles)
+				if pkg.dirty {
+					fmt.Printf("\t\t%s %v\n", pkg.outBit, pkg.dirtyFiles)
+				}
 			}
 		}
 		gensByOut[i] = pkg
@@ -71,7 +80,9 @@ func step4(gensByOut []*goPkgAbsOut, rootOutDir string, cfg *config.Config) erro
 						//TODO check majar ver compatibility
 						sort.Sort(cur)
 						// dirty := pkg.dirty
-						// for _, imp := range pkg.
+						for _, imp := range pkg.imps {
+							pkg.dirty = pkg.dirty || imp.dirty
+						}
 						if pkg.dirty {
 							nextSemvers[base] = Semver{cur[0].Major, cur[0].Minor + 1, 0}
 							nextSemvers[pkg.outBit] = Semver{cur[0].Major, cur[0].Minor + 1, 0}
@@ -97,19 +108,21 @@ func step4(gensByOut []*goPkgAbsOut, rootOutDir string, cfg *config.Config) erro
 	// }
 	//
 
-	fmt.Printf(`
-Module version & depenancies
-============================
+	fmt.Printf(`	Module version & depenancies
+	============================
 `)
 	for _, gm := range gensByOut {
-		fmt.Printf("%s %v (dirty:%v)\n", gm.module.mod.Module, nextSemvers[gm.outBit], gm.dirty)
+		if !gm.dirty {
+			continue
+		}
+		fmt.Printf("\t\t%s %v (dirty:%v)\n", gm.module.mod.Module, nextSemvers[gm.outBit], gm.dirty)
 		out, msg, err := gm.gomodRequireReplace(cfg, nextSemvers)
 		if err != nil {
-			fmt.Printf("%s, %s %v\n", string(out), msg, err)
+			fmt.Printf("\t%s, %s %v\n", string(out), msg, err)
 			return err
 		}
 		for _, y := range gm.imps {
-			fmt.Printf("   %s %v (dirty:%v)\n", y.module.mod.Module, nextSemvers[y.outBit], gm.dirty)
+			fmt.Printf("\t\t\t%s %v (dirty:%v)\n", y.module.mod.Module, nextSemvers[y.outBit], y.dirty)
 		}
 	}
 	//
@@ -117,6 +130,10 @@ Module version & depenancies
 	// 	for i, _ := range gm.mod.pkgs {
 	remote, desc := describe(cfg.SrcDir)
 	//
+	fmt.Printf(`	Git add,commit & tag
+	============================
+`)
+
 	for i, _ := range gensByOut {
 		pkg := gensByOut[i]
 		if pkg.mod {
@@ -353,7 +370,7 @@ func (gm *goPkgAbsOut) gomodRequireReplace(in *config.Config, nextSemvers map[st
 	return nil, "", nil
 }
 
-func addNtag(outDir string, podPath string, outBit string, files []string, sem Semver, mod bool, remote, desc string) error {
+func addNtag(outDir string, podPath string, outBit string, files []string, sem Semver, ismod bool, remote, desc string) error {
 	if len(files) == 0 {
 		return nil
 	}
@@ -365,8 +382,8 @@ func addNtag(outDir string, podPath string, outBit string, files []string, sem S
 		}
 		args = append(args, files...)
 		cmd.Args = append(cmd.Args, args...)
-		// fmt.Printf("git %+v\n", cmd.Args)
-		fmt.Printf("wd: %s cmd:%v\n", cmd.Dir, cmd.Args)
+		fmt.Printf("\t\twd: %s\n", cmd.Dir)
+		fmt.Printf("\t\t\tcmd:%v\n", cmd.Args)
 		out, err := cmd.CombinedOutput()
 		if err != nil {
 			fmt.Printf("%s\n", string(out))
@@ -378,15 +395,14 @@ func addNtag(outDir string, podPath string, outBit string, files []string, sem S
 		cmd.Dir = filepath.Join(outDir, podPath, outBit)
 		args := []string{"commit", "-m", remote + " " + desc}
 		cmd.Args = append(cmd.Args, args...)
-		// fmt.Printf("git %+v\n", cmd.Args)
-		fmt.Printf("wd: %s cmd:%v\n", cmd.Dir, cmd.Args)
+		fmt.Printf("\t\t\tcmd:%v\n", cmd.Args)
 		out, err := cmd.CombinedOutput()
 		if err != nil {
 			fmt.Printf("%s\n", string(out))
 			return err
 		}
 	}
-	if mod {
+	if ismod {
 		cmd := exec.Command("git")
 		cmd.Dir = filepath.Join(outDir, podPath, outBit)
 		args := []string{
@@ -394,7 +410,7 @@ func addNtag(outDir string, podPath string, outBit string, files []string, sem S
 			podPath + "/" + outBit + "/" + sem.String(),
 		}
 		cmd.Args = append(cmd.Args, args...)
-		fmt.Printf("wd: %s cmd:%v\n", cmd.Dir, cmd.Args)
+		fmt.Printf("\t\t\tcmd:%v\n", cmd.Args)
 		out, err := cmd.CombinedOutput()
 		if err != nil {
 			fmt.Printf("%s\n", string(out))

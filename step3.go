@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,6 +11,9 @@ import (
 )
 
 func (proc *Step3) Process(rootOutDir string, cfg *config.Config) (string, error) {
+	fmt.Printf(`Step 3
+============================
+`)
 	mp, err := step3(proc.step2.Modules, rootOutDir, cfg)
 	if err != nil {
 		return "", err
