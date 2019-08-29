@@ -275,7 +275,7 @@ func protoc(in goModWithFilesImports, srcdir string, outAbs string, pod *config.
 		q.Q(scmd)
 		q.Q(sout)
 	}
-	return fmt.Sprintf("wd: %s\ncmd %v\nmsg:%s\n", srcdir, cmd.Args, string(out)), err
+	return fmt.Sprintf("%s\ncmd %v\nmsg:%s\n", srcdir, cmd.Args, string(out)), err
 }
 
 var ignoreGitStatus = regexp.MustCompile(`^.*v(\d+)/(.+)?$`)
@@ -321,6 +321,7 @@ func (gm *goPkgAbsOut) gomodRequireReplace(in *config.Config, nextSemvers map[st
 	if !gm.mod {
 		return nil, "", nil // TODO maybe return an error
 	}
+	fmt.Printf("\t\t\t%s\n", gm.absOut)
 	for _, k := range in.Require {
 		cmd := exec.Command("go")
 		cmd.Dir = gm.absOut
@@ -331,6 +332,7 @@ func (gm *goPkgAbsOut) gomodRequireReplace(in *config.Config, nextSemvers map[st
 			"-require=" + k,
 		}
 		cmd.Args = append(cmd.Args, args...)
+		fmt.Printf("\t\t\t\tcmd:%v\n", cmd.Args)
 		if out, err := cmd.CombinedOutput(); err != nil {
 			log.Warningf("ERROR:\n  cmd:%v\n  out:%v   \n   err:%v\n", cmd.Args, string(out), err)
 			return out, "error", err
@@ -349,6 +351,7 @@ func (gm *goPkgAbsOut) gomodRequireReplace(in *config.Config, nextSemvers map[st
 			"-replace=" + dependance.module.mod.Module + "=" + relPath + dependance.outBit,
 		}
 		cmd.Args = append(cmd.Args, args...)
+		fmt.Printf("\t\t\t\tcmd:%v\n", cmd.Args)
 		if out, err := cmd.CombinedOutput(); err != nil {
 			log.Warningf("ERROR:\n  cmd:%v\n  out:%v   \n   err:%v\n", cmd.Args, string(out), err)
 			return out, "error", err
@@ -363,9 +366,28 @@ func (gm *goPkgAbsOut) gomodRequireReplace(in *config.Config, nextSemvers map[st
 		"tidy",
 	}
 	cmd.Args = append(cmd.Args, args...)
+	fmt.Printf("\t\t\t\tcmd:%v\n", cmd.Args)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		log.Warningf("ERROR:\n  cmd:%v\n  out:%v   \n   err:%v\n", cmd.Args, string(out), err)
 		return out, "error", err
+	}
+	//
+	for _, dependance := range gm.imps {
+		cmd := exec.Command("go")
+		cmd.Dir = gm.absOut
+		cmd.Env = append(os.Environ(), "GO111MODULE=on")
+		// relPath := strings.Repeat("../", strings.Count(gm.outBit, "/")+1)
+		args := []string{
+			"mod",
+			"edit",
+			"-dropreplace=" + dependance.module.mod.Module,
+		}
+		cmd.Args = append(cmd.Args, args...)
+		fmt.Printf("\t\t\t\tcmd:%v\n", cmd.Args)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			log.Warningf("ERROR:\n  cmd:%v\n  out:%v   \n   err:%v\n", cmd.Args, string(out), err)
+			return out, "error", err
+		}
 	}
 	return nil, "", nil
 }
@@ -382,7 +404,7 @@ func addNtag(outDir string, podPath string, outBit string, files []string, sem S
 		}
 		args = append(args, files...)
 		cmd.Args = append(cmd.Args, args...)
-		fmt.Printf("\t\twd: %s\n", cmd.Dir)
+		fmt.Printf("\t\t%s\n", cmd.Dir) // wd:
 		fmt.Printf("\t\t\tcmd:%v\n", cmd.Args)
 		out, err := cmd.CombinedOutput()
 		if err != nil {
