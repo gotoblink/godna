@@ -379,10 +379,11 @@ func (gm *goPkgAbsOut) gomodRequireReplace(in *config.Config, nextSemvers map[st
 		cmd := exec.Command("go")
 		cmd.Dir = gm.absOut
 		cmd.Env = append(os.Environ(), "GO111MODULE=on")
-		// relPath := strings.Repeat("../", strings.Count(gm.outBit, "/")+1)
+		sem := nextSemvers[dependance.outBit]
 		args := []string{
 			"mod",
 			"edit",
+			"-require=" + dependance.module.mod.Module + "@" + sem.String(),
 			"-dropreplace=" + dependance.module.mod.Module,
 		}
 		cmd.Args = append(cmd.Args, args...)
@@ -418,13 +419,14 @@ func addNtag(outDir string, podPath string, outBit string, files []string, sem S
 	{
 		cmd := exec.Command("git")
 		cmd.Dir = filepath.Join(outDir, podPath, outBit)
-		args := []string{"commit", "--allow-empty", "-m", remote + " " + desc}
+		// args := []string{"commit", "--allow-empty", "-m", remote + " " + desc}
+		args := []string{"commit", "-m", remote + " " + desc}
 		cmd.Args = append(cmd.Args, args...)
 		fmt.Printf("\t\t\tcmd:%v\n", cmd.Args)
 		out, err := cmd.CombinedOutput()
 		if err != nil {
-			fmt.Printf("%s\n", string(out))
-			return err
+			fmt.Printf("\t\t\tERROR %s\n", strings.ReplaceAll(string(out), "\n", "\n\t\t\t\t"))
+			// return err
 		}
 	}
 	if ismod {
