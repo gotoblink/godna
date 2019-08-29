@@ -418,7 +418,7 @@ func addNtag(outDir string, podPath string, outBit string, files []string, sem S
 	{
 		cmd := exec.Command("git")
 		cmd.Dir = filepath.Join(outDir, podPath, outBit)
-		args := []string{"commit", "-m", remote + " " + desc}
+		args := []string{"commit", "--allow-empty", "-m", remote + " " + desc}
 		cmd.Args = append(cmd.Args, args...)
 		fmt.Printf("\t\t\tcmd:%v\n", cmd.Args)
 		out, err := cmd.CombinedOutput()
