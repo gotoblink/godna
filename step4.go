@@ -53,8 +53,12 @@ func step4(gensByOut []*goPkgAbsOut, rootOutDir string, cfg *config.Config) erro
 		for _, pod := range cfg.PluginOutputDir {
 			if pod.OutType == config.Config_PluginOutDir_GO_MODS {
 				// var err error
-				pkg.dirty, pkg.dirtyFiles, _ = isDirty(rootOutDir, pod.Path, pkg.outBit)
-				if pkg.dirty {
+				dirty, dirtyFiles, _ := isDirty(rootOutDir, pod.Path, pkg.outBit)
+				pkg.dirty[pod.Path] = dirty
+				pkg.dirtyFiles[pod.Path] = dirtyFiles
+				// pkg.dirty
+				// pkg.dirtyFiles
+				if dirty {
 					fmt.Printf("\t\t%s %v\n", pkg.outBit, pkg.dirtyFiles)
 				}
 			}
@@ -81,9 +85,9 @@ func step4(gensByOut []*goPkgAbsOut, rootOutDir string, cfg *config.Config) erro
 						sort.Sort(cur)
 						// dirty := pkg.dirty
 						for _, imp := range pkg.imps {
-							pkg.dirty = pkg.dirty || imp.dirty
+							pkg.dirty[pod.Path] = pkg.dirty[pod.Path] || imp.dirty[pod.Path]
 						}
-						if pkg.dirty {
+						if pkg.dirty[pod.Path] {
 							nextSemvers[base] = Semver{cur[0].Major, cur[0].Minor + 1, 0}
 							nextSemvers[pkg.outBit] = Semver{cur[0].Major, cur[0].Minor + 1, 0}
 						} else {
@@ -112,17 +116,19 @@ func step4(gensByOut []*goPkgAbsOut, rootOutDir string, cfg *config.Config) erro
 	============================
 `)
 	for _, gm := range gensByOut {
-		if !gm.dirty {
-			continue
-		}
-		fmt.Printf("\t\t%s %v (dirty:%v)\n", gm.module.mod.Module, nextSemvers[gm.outBit], gm.dirty)
-		out, msg, err := gm.gomodRequireReplace(cfg, nextSemvers)
-		if err != nil {
-			fmt.Printf("\t%s, %s %v\n", string(out), msg, err)
-			return err
-		}
-		for _, y := range gm.imps {
-			fmt.Printf("\t\t\t%s %v (dirty:%v)\n", y.module.mod.Module, nextSemvers[y.outBit], y.dirty)
+		for _, pod := range cfg.PluginOutputDir {
+			if !gm.dirty[pod.Path] {
+				continue
+			}
+			fmt.Printf("\t\t%s %v (dirty:%v)\n", gm.module.mod.Module, nextSemvers[gm.outBit], gm.dirty)
+			out, msg, err := gm.gomodRequireReplace(cfg, nextSemvers)
+			if err != nil {
+				fmt.Printf("\t%s, %s %v\n", string(out), msg, err)
+				return err
+			}
+			for _, y := range gm.imps {
+				fmt.Printf("\t\t\t%s %v (dirty:%v)\n", y.module.mod.Module, nextSemvers[y.outBit], y.dirty)
+			}
 		}
 	}
 	//
@@ -138,10 +144,7 @@ func step4(gensByOut []*goPkgAbsOut, rootOutDir string, cfg *config.Config) erro
 		pkg := gensByOut[i]
 		if pkg.mod {
 			for _, pod := range cfg.PluginOutputDir {
-				_, dirtyFiles, err := isDirty(rootOutDir, pod.Path, pkg.outBit)
-				if err != nil {
-					return err
-				}
+				dirtyFiles := pkg.dirtyFiles[pod.Path]
 				err = addNtag(rootOutDir, pod.Path, pkg.outBit, dirtyFiles, nextSemvers[pod.Path+"/"+pkg.outBit], pkg.mod, remote, desc)
 				// fmt.Printf("%s %v\n", pkg.outBit, dirtyFiles)
 			}

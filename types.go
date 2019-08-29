@@ -46,8 +46,8 @@ type goPkgAbsOut struct {
 	module     *goModPlus
 	absOut     string
 	outBit     string
-	dirty      bool
-	dirtyFiles []string
+	dirty      map[string]bool
+	dirtyFiles map[string][]string
 	// pod    *config.Config_PluginOutDir
 	pkgx goModWithFilesImports
 	imps []*goPkgAbsOut

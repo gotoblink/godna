@@ -36,11 +36,13 @@ func step3(gomods2 []*goModPlus, rootOutDir string, cfg *config.Config) ([]*goPk
 				}
 				ismod := pod.OutType == config.Config_PluginOutDir_GO_MODS && modp.mod.Module == pkg.Package
 				gensPkg := &goPkgAbsOut{
-					absOut: absOut,
-					outBit: outBit,
-					pkgx:   pkg,
-					mod:    ismod,
-					module: modp,
+					absOut:     absOut,
+					outBit:     outBit,
+					pkgx:       pkg,
+					mod:        ismod,
+					module:     modp,
+					dirty:      map[string]bool{},
+					dirtyFiles: map[string][]string{},
 				}
 				gensByOut = append(gensByOut, gensPkg)
 				if ismod {
