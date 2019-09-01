@@ -32,6 +32,9 @@ func step1(cfg *config.Config) (*Step1, error) {
 var goModRe = regexp.MustCompile(`(?m)^module ([^ ]+)$`)
 
 func (in *Step1) collectGomods(cfg *config.Config) error {
+	fmt.Printf(`	Collecting Go Modules
+	============================
+`)
 	walkCollectGoMods := func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
@@ -54,6 +57,7 @@ func (in *Step1) collectGomods(cfg *config.Config) error {
 		} else {
 			return fmt.Errorf("no go module found in %s/go.mod path: %s\n%s\n", gm.RelDir, path, string(content))
 		}
+		fmt.Printf("\t\t%s\n", gm.Module)
 		in.Modules = append(in.Modules, gm)
 		return nil
 	}

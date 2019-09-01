@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/golangq/q"
@@ -29,7 +30,7 @@ func step3(gomods2 []*goModPlus, rootOutDir string, cfg *config.Config) ([]*goPk
 	for _, modp := range gomods2 {
 		for _, pkg := range modp.pkgs {
 			for _, pod := range cfg.PluginOutputDir {
-				absOut, outBit, err := absOut_Mk_CpMod(pkg, pod, cfg.SrcDir, rootOutDir)
+				absOut, outBit, err := absNbits(pkg, pod, cfg.SrcDir, rootOutDir)
 				// fmt.Printf("a:%s b:%s p:%s\n", absOut, outBit, pkg.Package)
 				if err != nil {
 					return nil, err
@@ -41,17 +42,10 @@ func step3(gomods2 []*goModPlus, rootOutDir string, cfg *config.Config) ([]*goPk
 					pkgx:       pkg,
 					mod:        ismod,
 					module:     modp,
-					dirty:      map[string]bool{},
 					dirtyFiles: map[string][]string{},
 				}
 				gensByOut = append(gensByOut, gensPkg)
 				if ismod {
-					// gomod := goModAbsOut{
-					// 	mod:  modp,
-					// 	pkg:  &gensPkg,
-					// 	imps: nil,
-					// }
-					// goModAbs = append(goModAbs, &gomod)
 					modMap[outBit] = gensPkg
 				}
 			}
@@ -73,12 +67,35 @@ func step3(gomods2 []*goModPlus, rootOutDir string, cfg *config.Config) ([]*goPk
 		}
 		gensByOut[i] = gomodabs
 	}
+	//
+	for _, gomodabs := range gensByOut {
+		if err := mkdirNcopy(cfg.SrcDir, gomodabs); err != nil {
+			return nil, err
+		}
+	}
+	//
 	for i, _ := range gensByOut {
 		gomodabs := gensByOut[i]
 		deps := gomodabs.collect("", map[string]struct{}{})
 		gomodabs.imps = deps
 	}
-	return gensByOut, nil
+	gensByOut_Sort := goPkgAbsOutBy(gensByOut)
+	sort.Sort(gensByOut_Sort)
+	fmt.Printf(
+		`	Collected & Sorted
+	============================
+`)
+	for _, pkg := range gensByOut_Sort {
+		if !pkg.mod {
+			continue
+		}
+		fmt.Printf("\t\t%v\n", pkg.pkgx.Package)
+		for _, dep := range pkg.imps {
+			fmt.Printf("\t\t\t%v\n", dep.pkgx.Package)
+		}
+	}
+
+	return gensByOut_Sort, nil
 }
 
 func (mod goPkgAbsOut) collect(indent string, depSet map[string]struct{}) []*goPkgAbsOut {
@@ -113,7 +130,7 @@ func suffix(sa, sb string) string {
 	return sa[la-lo+1:]
 }
 
-func absOut_Mk_CpMod(in goModWithFilesImports, pod *config.Config_PluginOutDir, srcdir string, outroot string) (abs string, bit string, e error) {
+func absNbits(in goModWithFilesImports, pod *config.Config_PluginOutDir, srcdir string, outroot string) (abs string, bit string, e error) {
 	outbit_idx := strings.LastIndex(in.ContainingMod, "/"+pod.Path+"/")
 	outbit := ""
 	if outbit_idx > -1 {
@@ -125,22 +142,26 @@ func absOut_Mk_CpMod(in goModWithFilesImports, pod *config.Config_PluginOutDir, 
 	if err != nil {
 		return "", outbit, err
 	}
-	if err = os.MkdirAll(outAbs, os.ModePerm); err != nil {
-		return outAbs, outbit, err
+	return outAbs, outbit, nil
+}
+
+func mkdirNcopy(srcdir string, gomodabs *goPkgAbsOut) error {
+	if err := os.MkdirAll(gomodabs.absOut, os.ModePerm); err != nil {
+		return err
 	}
 	//
-	if in.ContainingMod == in.Package && pod.OutType == config.Config_PluginOutDir_GO_MODS {
-		src := filepath.Join(srcdir, in.RelDir, "go.mod")
+	if gomodabs.mod {
+		src := filepath.Join(srcdir, gomodabs.pkgx.RelDir, "go.mod")
 		pwd, _ := os.Getwd()
-		dest := filepath.Join(outAbs, "go.mod")
-		if _, err = os.Open(dest); err != nil {
+		dest := filepath.Join(gomodabs.absOut, "go.mod")
+		if _, err := os.Open(dest); err != nil {
 			q.Q("$ %s cp %s %s\n", pwd, src, dest)
 			if _, err = filecopy(src, dest); err != nil {
-				return outAbs, outbit, err
+				return err
 			}
 		} else {
 			q.Q("$ %s #cp %s %s\n", pwd, src, dest)
 		}
 	}
-	return outAbs, outbit, nil
+	return nil
 }

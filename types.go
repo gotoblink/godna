@@ -43,13 +43,27 @@ type goModPlus struct {
 }
 
 type goPkgAbsOut struct {
-	module     *goModPlus
-	absOut     string
-	outBit     string
-	dirty      map[string]bool
+	module *goModPlus
+	absOut string
+	outBit string
+	// dirty      map[string]bool
 	dirtyFiles map[string][]string
 	// pod    *config.Config_PluginOutDir
 	pkgx goModWithFilesImports
 	imps []*goPkgAbsOut
 	mod  bool
+}
+
+type goPkgAbsOutBy []*goPkgAbsOut
+
+func (a goPkgAbsOutBy) Len() int      { return len(a) }
+func (a goPkgAbsOutBy) Swap(i, j int) { a[i], a[j] = a[j], a[i] }
+func (a goPkgAbsOutBy) Less(i, j int) bool {
+	x, y := a[i], a[j]
+	for k, _ := range x.imps {
+		if y.pkgx.Package == x.imps[k].pkgx.Package {
+			return false
+		}
+	}
+	return true
 }

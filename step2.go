@@ -27,12 +27,18 @@ func (proc *Step2) Process(rootOutDir string, cfg *config.Config) (string, error
 // collectFilesAndImports
 func step2(srcDir string, modules []goMod) ([]*goModPlus, error) {
 	gomods2 := []*goModPlus{}
+	fmt.Printf(`	For Modules
+	============================
+`)
+
 	for _, gomod := range modules {
-		// fmt.Printf("%s\n", x)
+		fmt.Printf("\t\t%s\n", gomod.Module)
+		fmt.Printf("\t\t\tCollect files\n")
 		pfs, err := gomod.collectFiles(srcDir)
 		if err != nil {
 			return nil, err
 		}
+		fmt.Printf("\t\t\tCollect packages\n")
 		mods, err := pfs.collectModules(gomod)
 		if err != nil {
 			return nil, err
@@ -70,10 +76,13 @@ func (in protoFiles) collectModules(gomod goMod) ([]goModWithFilesImports, error
 		}
 	}
 	ret := []goModWithFilesImports{}
+	// modx := map[string]struct{}{}
 	for _, mod := range mods {
 		if !strings.HasPrefix(mod.Package, gomod.Module) {
 			return nil, fmt.Errorf("not contained in module %v %v", mod.Package, gomod.Module)
 		}
+		// modx[]
+		fmt.Printf("\t\t\t\t%v\n", mod.Package)
 		ret = append(ret, *mod)
 	}
 	return ret, nil
@@ -125,6 +134,7 @@ func (in *goMod) collectFiles(srcDir string) (*protoFiles, error) {
 			pf.Imports = append(pf.Imports, string(m[1]))
 		}
 		//
+		fmt.Printf("\t\t\t\t%s\n", pf.RelFile)
 		pfs.Files = append(pfs.Files, pf)
 		return nil
 	}
