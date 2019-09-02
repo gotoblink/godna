@@ -1,4 +1,4 @@
-package main
+package regen
 
 import (
 	"bufio"
@@ -14,6 +14,8 @@ import (
 
 	log "github.com/golang/glog"
 	"github.com/golangq/q"
+
+	"github.com/wxio/godna/internal/utils"
 	"github.com/wxio/godna/pb/dna/config"
 )
 
@@ -51,7 +53,7 @@ func step4(gensByOut []*goPkgAbsOut, rootOutDir string, cfg *config.Config) erro
 	if err != nil {
 		return err
 	}
-	nextSemvers := map[string]Semver{}
+	nextSemvers := map[string]utils.Semver{}
 	//
 	fmt.Printf(`	Module version & depenancies
 	============================
@@ -61,7 +63,7 @@ func step4(gensByOut []*goPkgAbsOut, rootOutDir string, cfg *config.Config) erro
 		if !pkg.mod {
 			continue
 		}
-		major := pkgModVersion(pkg.outBit)
+		major := utils.PkgModVersion(pkg.outBit)
 		if major == -1 {
 			return fmt.Errorf("not version for mod relpath:%s", pkg.outBit)
 		}
@@ -79,21 +81,21 @@ func step4(gensByOut []*goPkgAbsOut, rootOutDir string, cfg *config.Config) erro
 					dirtyFiles, _ := getDirtyFiles(rootOutDir, pod.Path, pkg.outBit)
 					pkg.dirtyFiles[pod.Path] = dirtyFiles
 					if len(dirtyFiles) > 0 {
-						nextSemvers[base] = Semver{cur[0].Major, cur[0].Minor + 1, 0}
-						nextSemvers[pkg.outBit] = Semver{cur[0].Major, cur[0].Minor + 1, 0}
+						nextSemvers[base] = utils.Semver{cur[0].Major, cur[0].Minor + 1, 0}
+						nextSemvers[pkg.outBit] = utils.Semver{cur[0].Major, cur[0].Minor + 1, 0}
 					} else {
 						nextSemvers[base] = cur[0]
 						nextSemvers[pkg.outBit] = cur[0]
 					}
 				} else {
 					pkg.dirtyFiles[pod.Path] = pkg.pkgx.Files
-					nextSemvers[base] = Semver{major, 0, 0}
-					nextSemvers[pkg.outBit] = Semver{major, 0, 0}
+					nextSemvers[base] = utils.Semver{major, 0, 0}
+					nextSemvers[pkg.outBit] = utils.Semver{major, 0, 0}
 				}
 			} else {
 				pkg.dirtyFiles[pod.Path] = pkg.pkgx.Files
-				nextSemvers[base] = Semver{major, 0, 0}
-				nextSemvers[pkg.outBit] = Semver{major, 0, 0}
+				nextSemvers[base] = utils.Semver{major, 0, 0}
+				nextSemvers[pkg.outBit] = utils.Semver{major, 0, 0}
 			}
 			// }
 			for _, y := range pkg.imps {
@@ -102,7 +104,7 @@ func step4(gensByOut []*goPkgAbsOut, rootOutDir string, cfg *config.Config) erro
 		}
 	}
 	//
-	remote, desc := describe(cfg.SrcDir)
+	remote, desc := utils.Describe(cfg.SrcDir)
 	//
 	fmt.Printf(`	Git add,commit & tag
 	============================
@@ -131,8 +133,8 @@ func step4(gensByOut []*goPkgAbsOut, rootOutDir string, cfg *config.Config) erro
 
 var pathSemver = regexp.MustCompile(`^(.+)/v(\d+)\.(\d+)\.(\d+)$`)
 
-func gitGetTagSemver(inside_repo string) (map[string]map[int64]Semvers, error) {
-	ret := map[string]map[int64]Semvers{}
+func gitGetTagSemver(inside_repo string) (map[string]map[int64]utils.Semvers, error) {
+	ret := map[string]map[int64]utils.Semvers{}
 	cmd := exec.Command("git")
 	cmd.Dir = inside_repo
 	// cmd.Dir = filepath.Join(in.OutputDir, tp.dirn)
@@ -158,11 +160,11 @@ func gitGetTagSemver(inside_repo string) (map[string]map[int64]Semvers, error) {
 		ma, _ := strconv.ParseInt(match[2], 10, 64)
 		mi, _ := strconv.ParseInt(match[3], 10, 64)
 		pa, _ := strconv.ParseInt(match[4], 10, 64)
-		sem := Semver{Major: ma, Minor: mi, Patch: pa}
+		sem := utils.Semver{Major: ma, Minor: mi, Patch: pa}
 		sems, ex := ret[modName]
 		if !ex {
-			sems = make(map[int64]Semvers)
-			sems[ma] = Semvers{sem}
+			sems = make(map[int64]utils.Semvers)
+			sems[ma] = utils.Semvers{sem}
 			ret[modName] = sems
 		} else {
 			sems[ma] = append(sems[ma], sem)
@@ -283,7 +285,7 @@ func getDirtyFiles(outDir string, podPath string, outBit string) (files []string
 	return
 }
 
-func (gm *goPkgAbsOut) gomodRequireReplace(in *config.Config, nextSemvers map[string]Semver) ([]byte, string, error) {
+func (gm *goPkgAbsOut) gomodRequireReplace(in *config.Config, nextSemvers map[string]utils.Semver) ([]byte, string, error) {
 	if !gm.mod {
 		return nil, "", nil // TODO maybe return an error
 	}
@@ -359,7 +361,7 @@ func (gm *goPkgAbsOut) gomodRequireReplace(in *config.Config, nextSemvers map[st
 	return nil, "", nil
 }
 
-func addNtag(outDir string, podPath string, outBit string, files []string, sem Semver, ismod bool, remote, desc string) error {
+func addNtag(outDir string, podPath string, outBit string, files []string, sem utils.Semver, ismod bool, remote, desc string) error {
 	if len(files) == 0 {
 		return nil
 	}

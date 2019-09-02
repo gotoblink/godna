@@ -1,4 +1,4 @@
-package main
+package regen
 
 type Step1 struct {
 	Modules []goMod

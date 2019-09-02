@@ -1,4 +1,4 @@
-package main
+package regen
 
 import (
 	"fmt"
@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	"github.com/golangq/q"
+
+	"github.com/wxio/godna/internal/utils"
 	"github.com/wxio/godna/pb/dna/config"
 )
 
@@ -156,7 +158,7 @@ func mkdirNcopy(srcdir string, gomodabs *goPkgAbsOut) error {
 		dest := filepath.Join(gomodabs.absOut, "go.mod")
 		if _, err := os.Open(dest); err != nil {
 			q.Q("$ %s cp %s %s\n", pwd, src, dest)
-			if _, err = filecopy(src, dest); err != nil {
+			if _, err = utils.Filecopy(src, dest); err != nil {
 				return err
 			}
 		} else {

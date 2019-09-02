@@ -1,4 +1,4 @@
-package main
+package utils
 
 import (
 	"fmt"
@@ -21,7 +21,7 @@ var vxMod = regexp.MustCompile(`^[^/]+/v(\d+)$`)
 // some_dir/vXX => XX
 // some_dir/other => -1
 // some_dir/vXX/other => -1
-func pkgModVersion(dirname string) int64 {
+func PkgModVersion(dirname string) int64 {
 	if match := vxMod.FindStringSubmatch(dirname); len(match) > 0 {
 		if majorVer, err := strconv.ParseInt(match[1], 10, 32); err != nil {
 			log.Errorf("keh %v", err)
@@ -61,7 +61,7 @@ func (a Semvers) Less(i, j int) bool {
 	return false
 }
 
-func filecopy(src, dst string) (int64, error) {
+func Filecopy(src, dst string) (int64, error) {
 	sourceFileStat, err := os.Stat(src)
 	if err != nil {
 		return 0, fmt.Errorf("stat %v", err)
@@ -83,7 +83,7 @@ func filecopy(src, dst string) (int64, error) {
 	return nBytes, err
 }
 
-func describe(src string) (remote string, desc string) {
+func Describe(src string) (remote string, desc string) {
 	{ //
 		cmd := exec.Command("git")
 		cmd.Dir = filepath.Join(src)
