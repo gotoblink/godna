@@ -3,8 +3,11 @@ package main
 import (
 	"fmt"
 
-	"github.com/wxio/godna/bumptag"
 	"github.com/wxio/godna/pb/dna/config"
+
+	"github.com/wxio/godna/bumptag"
+	"github.com/wxio/godna/generate"
+	"github.com/wxio/godna/readfds"
 	"github.com/wxio/godna/regen"
 
 	"github.com/jpillora/opts"
@@ -26,6 +29,7 @@ type versionCmd struct {
 func main() {
 	cfg := &config.Config{}
 	rcmd := regen.New(cfg)
+	gen_cmd := generate.New(cfg)
 	opts.New(&root{}).
 		Name("godna").
 		EmbedGlobalFlagSet().
@@ -34,7 +38,10 @@ func main() {
 		AddCommand(opts.New(&versionCmd{}).Name("version")).
 		AddCommand(opts.New(rcmd).Name("regen").
 			FieldConfigPath("./.dna-cfg.ptron", cfg)). //, "godna.Config")).
+		AddCommand(opts.New(gen_cmd).Name("generate").
+			FieldConfigPath("./.dna-cfg.ptron", cfg)).
 		AddCommand(opts.New(bumptag.New()).Name("bumptag")).
+		AddCommand(opts.New(readfds.New()).Name("readfds")).
 		Parse().
 		RunFatal()
 }

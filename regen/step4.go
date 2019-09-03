@@ -211,6 +211,15 @@ func protocGenerator(outdir string, gen *config.Config_Generator) string {
 		}
 		name = name + strings.Join(args, ",") + ":" + outdir
 		return name
+	case *config.Config_Generator_Plugin_Gotag:
+		name := "--gotag_out="
+		args := []string{}
+		args = append(args, "paths="+strings.ToLower(plg.Gotag.Paths.String()))
+		name = name + strings.Join(args, ",") + ":" + outdir
+		return name
+	default:
+		fmt.Printf("unknown plugin %T\n", plg)
+		os.Exit(2)
 	}
 	return ""
 }
@@ -256,6 +265,8 @@ func getDirtyFiles(outDir string, podPath string, outBit string) (files []string
 		".",
 	}
 	cmd.Args = append(cmd.Args, args...)
+	q.Q(cmd.Dir)
+	q.Q(cmd.Args)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		log.Warning(err)
