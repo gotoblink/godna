@@ -74,11 +74,11 @@ func step4(gensByOut []*goPkgAbsOut, rootOutDir string, cfg *config.Config) erro
 				return err
 			}
 			base := pod.Path + "/" + pkg.outBit
+			dirtyFiles, _ := getDirtyFiles(rootOutDir, pod.Path, pkg.outBit)
 			if next, ex := gitTagSemver[base]; ex {
 				if cur, ex := next[major]; ex {
 					//TODO check majar ver compatibility
 					sort.Sort(cur)
-					dirtyFiles, _ := getDirtyFiles(rootOutDir, pod.Path, pkg.outBit)
 					pkg.dirtyFiles[pod.Path] = dirtyFiles
 					if len(dirtyFiles) > 0 {
 						nextSemvers[base] = utils.Semver{cur[0].Major, cur[0].Minor + 1, 0}
@@ -88,12 +88,10 @@ func step4(gensByOut []*goPkgAbsOut, rootOutDir string, cfg *config.Config) erro
 						nextSemvers[pkg.outBit] = cur[0]
 					}
 				} else {
-					pkg.dirtyFiles[pod.Path] = pkg.pkgx.Files
 					nextSemvers[base] = utils.Semver{major, 0, 0}
 					nextSemvers[pkg.outBit] = utils.Semver{major, 0, 0}
 				}
 			} else {
-				pkg.dirtyFiles[pod.Path] = pkg.pkgx.Files
 				nextSemvers[base] = utils.Semver{major, 0, 0}
 				nextSemvers[pkg.outBit] = utils.Semver{major, 0, 0}
 			}
