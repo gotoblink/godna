@@ -4,18 +4,32 @@ type GoPackages struct {
 	Pkgs         []*goPkg2
 	MaxPkgLen    int
 	MaxRelDirLen int
+	name2goPkg2  map[string]*goPkg2
 }
 type ProtocIt struct {
-	goPkgs GoPackages
-	//	Pkgs   []*goPkg3
+	goPkgs            GoPackages
+	FileDescriptorSet []byte
+}
+
+type GoModIt struct {
+	protocIt ProtocIt
 }
 
 type goPkg2 struct {
 	RelDir  string
 	Pkg     string
 	Files   []string
-	Imports []string
-	// pkgs    []*goPkg2
+	Imports []*goPkg2
+}
+
+func (pk goPkg2) String() string {
+	return pk.Pkg
+}
+
+type goMod struct {
+	pkg    *goPkg2
+	subpkg []*goPkg2
+	imp    []*goMod
 }
 
 // type goPkg3 struct {

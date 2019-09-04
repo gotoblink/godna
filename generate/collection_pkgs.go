@@ -8,20 +8,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-
-	"github.com/wxio/godna/pb/dna/config"
 )
-
-func (proc *GoPackages) Process(rootOutDir string, cfg *config.Config) (string, error) {
-	pkgs, maxPkgLen, maxRelDirLen, err := collectFilesAndImports(cfg.SrcDir, cfg.GetGoPackagePrefix())
-	if err != nil {
-		return "", err
-	}
-	proc.Pkgs = pkgs
-	proc.MaxPkgLen = maxPkgLen
-	proc.MaxRelDirLen = maxRelDirLen
-	return "", nil
-}
 
 type protoFile struct {
 	File    string
@@ -34,33 +21,41 @@ type goPkgName struct {
 }
 type goProtoPkg map[string][]protoFile
 
-// collectFilesAndImports
-func collectFilesAndImports(srcDir string, goPkgPrefix string) (_ []*goPkg2, maxPkgLen, maxRelDirLen int, _ error) {
+func (proc *GoPackages) Process(cmd *generate) (string, error) {
+	goPkgPrefix := cmd.cfg.GetGoPackagePrefix()
 	if goPkgPrefix == "" {
-		return nil, maxPkgLen, maxRelDirLen, fmt.Errorf("error go package prefix is manditory")
+		return "", fmt.Errorf("error go package prefix is manditory")
 	}
-	pkgs := []*goPkg2{}
-	pfs, ordered_pkgnames, err := collectFiles(srcDir)
+	pfs, ordered_pkgnames, err := collectFiles(cmd.cfg.SrcDir)
 	if err != nil {
-		return nil, maxPkgLen, maxRelDirLen, err
+		return "", err
 	}
+	proc.name2goPkg2 = map[string]*goPkg2{}
 	for _, pn := range ordered_pkgnames {
 		if !strings.HasPrefix(pn.name, goPkgPrefix) {
 			continue
 		}
-		gp2 := &goPkg2{
-			Pkg:    pn.name,
-			RelDir: pn.dir,
+		gp2 := &goPkg2{Pkg: pn.name, RelDir: pn.dir}
+		proc.name2goPkg2[pn.name] = gp2
+		if len(pn.name) > proc.MaxPkgLen {
+			proc.MaxPkgLen = len(pn.name)
 		}
-		if len(pn.name) > maxPkgLen {
-			maxPkgLen = len(pn.name)
+		if len(pn.dir) > proc.MaxRelDirLen {
+			proc.MaxRelDirLen = len(pn.dir)
 		}
-		if len(pn.dir) > maxRelDirLen {
-			maxRelDirLen = len(pn.dir)
-		}
-		iex := map[string]bool{}
 		for _, pf := range pfs[pn.name] {
 			gp2.Files = append(gp2.Files, pf.File)
+		}
+		proc.Pkgs = append(proc.Pkgs, gp2)
+	}
+	//
+	for _, pn := range ordered_pkgnames {
+		if !strings.HasPrefix(pn.name, goPkgPrefix) {
+			continue
+		}
+		gp2 := proc.name2goPkg2[pn.name]
+		iex := map[string]bool{}
+		for _, pf := range pfs[pn.name] {
 			for _, im := range pf.Imports {
 				if _, ex := iex[im]; !ex {
 					for _, localpkg := range ordered_pkgnames {
@@ -68,7 +63,8 @@ func collectFilesAndImports(srcDir string, goPkgPrefix string) (_ []*goPkg2, max
 							continue
 						}
 						if strings.HasSuffix(localpkg.dir, im) {
-							gp2.Imports = append(gp2.Imports, localpkg.dir)
+							dep := proc.name2goPkg2[localpkg.name]
+							gp2.Imports = append(gp2.Imports, dep)
 							break
 						}
 					}
@@ -77,9 +73,8 @@ func collectFilesAndImports(srcDir string, goPkgPrefix string) (_ []*goPkg2, max
 				}
 			}
 		}
-		pkgs = append(pkgs, gp2)
 	}
-	return pkgs, maxPkgLen, maxRelDirLen, nil
+	return "", nil
 }
 
 var goPkgOptRe = regexp.MustCompile(`(?m)^option\s+go_package\s*=\s*([^ ]+);`)
@@ -132,7 +127,6 @@ func collectFiles(srcDir string) (goProtoPkg, []goPkgName, error) {
 			pf.Imports = append(pf.Imports, string(m[1]))
 		}
 		//
-		// fs := gpp[pkgname]
 		if fs, ex := gpp[pkgname]; !ex {
 			orderPkgName = append(orderPkgName, goPkgName{pkgname, pf.Dir})
 		} else {
@@ -141,7 +135,6 @@ func collectFiles(srcDir string) (goProtoPkg, []goPkgName, error) {
 			}
 		}
 		gpp[pkgname] = append(gpp[pkgname], pf)
-		// gpp[pkgname] = fs
 		return nil
 	}
 	if err := filepath.Walk(srcDir, walkCollect); err != nil {
