@@ -25,9 +25,11 @@ type goPkg2 struct {
 type goPkgs2By []*goPkg2
 
 type goMod struct {
-	pkg    *goPkg2
-	subpkg []*goPkg2
-	imp    []*goMod
+	pkg     *goPkg2
+	subpkg  []*goPkg2
+	imp     []*goMod
+	version string
+	dirty   []string
 }
 
 func (mo goMod) String() string {

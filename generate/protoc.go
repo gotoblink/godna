@@ -18,7 +18,7 @@ func (proc *ProtocIt) Process(cmd *generate) (string, error) {
 	// 	return "err: mkdir -p " + cmd.OutputDir + "/descriptor_set", err
 	// }
 	for _, pkg := range proc.goPkgs.Pkgs {
-		if _, ex := cmd.steps["protoc_plugs"]; ex {
+		if cmd.StepProtoc {
 			fmt.Printf("protoc                       %s %s\n", pkg.Pkg, pkg.Files)
 			for _, pod := range cmd.cfg.PluginOutputDir {
 				for _, gen := range pod.Generator {
@@ -33,7 +33,12 @@ func (proc *ProtocIt) Process(cmd *generate) (string, error) {
 				}
 			}
 		}
-		if _, ex := cmd.steps["protoc_file_description_set"]; ex {
+		if cmd.StepGomodAll ||
+			cmd.StepGomodInit ||
+			cmd.StepGomodCfg ||
+			cmd.StepGomodLocal ||
+			cmd.StepGomodTidy ||
+			cmd.StepGomodVersion {
 			fmt.Printf("protoc_file_description_set: %s %s\n", pkg.Pkg, pkg.Files)
 			// outFile := filepath.Join(cmd.OutputDir, "descriptor_set", strings.Replace(pkg.Pkg, "/", "_", -1)+".fds")
 			fds, msg, err := protoc_descriptor_set_out(*pkg, cmd)

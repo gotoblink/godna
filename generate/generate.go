@@ -11,11 +11,21 @@ import (
 
 type generate struct {
 	debugger
-	cfg       *config.Config
-	OutputDir string   `opts:"mode=arg" help:"output directory eg ."`
-	Steps     []string `help:" defaults (protoc_plugs, protoc_file_description_set:gomod,gitcommit,gittag)"`
+	cfg              *config.Config
+	OutputDir        string `opts:"mode=arg" help:"output directory eg ."`
+	StepProtoc       bool   `opts:"short=p" help:"run the protoc step"`
+	StepGomodAll     bool   `opts:"short=m" help:"run all go mod steps. Overrides the individual --step-gomod-x flags (ie or'ed)"`
+	StepGomodInit    bool
+	StepGomodCfg     bool
+	StepGomodLocal   bool
+	StepGomodTidy    bool
+	StepGomodVersion bool
+	StepGitAll       bool `opts:"short=g"`
+	StepGitCommit    bool
+	StepGetTag       bool
+	// Steps            []string `help:" defaults (protoc_plugs, protoc_file_description_set:gomod,gitcommit,gittag)"`
 	//
-	steps map[string]map[string]bool
+	// steps map[string]map[string]bool
 }
 
 type debugger interface {
@@ -24,36 +34,26 @@ type debugger interface {
 
 func New(cfg *config.Config, de debugger) *generate {
 	return &generate{
-		debugger: de,
+		debugger:   de,
+		StepProtoc: true,
 		// Steps: []string{"protoc_plugs", "protoc_file_description_set:gomod,gitcommit,gittag"},
 		cfg: cfg,
 	}
 }
 
 func (cmd *generate) Run() error {
-	if len(cmd.Steps) == 0 {
-		cmd.Steps = []string{
-			"protoc_plugs",
-			"protoc_file_description_set:gomod,gitcommit,gittag",
-		}
+	if !(cmd.StepProtoc ||
+		cmd.StepGomodAll ||
+		cmd.StepGomodInit ||
+		cmd.StepGomodCfg ||
+		cmd.StepGomodLocal ||
+		cmd.StepGomodTidy ||
+		cmd.StepGomodVersion ||
+		cmd.StepGitAll ||
+		cmd.StepGitCommit ||
+		cmd.StepGetTag) {
+		return fmt.Errorf("No step specified. See help.\n")
 	}
-	cmd.steps = map[string]map[string]bool{}
-	for _, st := range cmd.Steps {
-		ke := strings.Split(st, ":")
-		switch len(ke) {
-		case 1:
-			cmd.steps[ke[0]] = map[string]bool{}
-		case 2:
-			cmd.steps[ke[0]] = map[string]bool{}
-			ke2 := strings.Split(ke[1], ",")
-			for _, k2 := range ke2 {
-				cmd.steps[ke[0]][k2] = true
-			}
-		default:
-			return fmt.Errorf("invalid step format %v", st)
-		}
-	}
-	fmt.Printf("%v\n", cmd.steps)
 	var err error
 	cmd.cfg.SrcDir = os.ExpandEnv(cmd.cfg.SrcDir)
 	cmd.cfg.SrcDir, err = filepath.Abs(cmd.cfg.SrcDir)
@@ -111,7 +111,8 @@ func (cmd *generate) Run() error {
 		}
 		for _, gomod := range goModIt.gomods {
 			padding := strings.Repeat(" ", goModIt.protocIt.goPkgs.MaxPkgLen-len(gomod.pkg.Pkg))
-			fmt.Printf("gomod: %s%s %v %v\n", gomod.pkg.Pkg, padding, gomod.subpkg, gomod.imp)
+			fmt.Printf("gomod: %s%s subpkg #%v imports #%v %s dirty %v\n",
+				gomod.pkg.Pkg, padding, len(gomod.subpkg), len(gomod.imp), gomod.version, len(gomod.dirty) != 0)
 		}
 		return *goModIt
 	}

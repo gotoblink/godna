@@ -2,12 +2,12 @@ package main
 
 import (
 	"fmt"
-	"os"
 
-	"github.com/wxio/godna/pb/dna/config"
+	log "github.com/golang/glog"
 
 	"github.com/wxio/godna/bumptag"
 	"github.com/wxio/godna/generate"
+	"github.com/wxio/godna/pb/dna/config"
 	"github.com/wxio/godna/readfds"
 	"github.com/wxio/godna/regen"
 
@@ -26,7 +26,7 @@ type root struct {
 
 func (r root) Debugf(format string, a ...interface{}) {
 	if r.Debug {
-		fmt.Fprintf(os.Stderr, format, a...)
+		log.InfoDepth(1, fmt.Sprintf(format, a...))
 	}
 }
 
@@ -39,7 +39,7 @@ func main() {
 	cfg := &config.Config{}
 	rcmd := regen.New(cfg)
 	gen_cmd := generate.New(cfg, ro)
-	opts.New(ro).
+	opt := opts.New(ro).
 		Name("godna").
 		EmbedGlobalFlagSet().
 		Complete().
@@ -51,8 +51,12 @@ func main() {
 			FieldConfigPath("./.dna-cfg.ptron", cfg)).
 		AddCommand(opts.New(bumptag.New()).Name("bumptag")).
 		AddCommand(opts.New(readfds.New()).Name("readfds")).
-		Parse().
-		RunFatal()
+		Parse()
+	if ro.Debug {
+		fmt.Printf("note manually set 'godna --logtostderr' to see logs")
+		log.CopyStandardLogTo("INFO")
+	}
+	opt.RunFatal()
 }
 
 func (r *versionCmd) Run() error {
