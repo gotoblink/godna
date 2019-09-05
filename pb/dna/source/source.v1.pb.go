@@ -4,13 +4,9 @@
 package source
 
 import (
-	context "context"
 	fmt "fmt"
 	proto "github.com/golang/protobuf/proto"
 	_ "github.com/wxio/godna/pb/extensions/store"
-	grpc "google.golang.org/grpc"
-	codes "google.golang.org/grpc/codes"
-	status "google.golang.org/grpc/status"
 	math "math"
 )
 
@@ -575,120 +571,4 @@ var fileDescriptor_ffe51ff600ea989f = []byte{
 	0x80, 0x8f, 0xbd, 0x9c, 0xec, 0x45, 0x3c, 0x64, 0xd8, 0x4b, 0x06, 0x5e, 0xfe, 0xa3, 0xab, 0x0c,
 	0xaa, 0xea, 0x0f, 0xba, 0xfd, 0x37, 0x00, 0x00, 0xff, 0xff, 0xef, 0xfb, 0x8d, 0x24, 0xeb, 0x05,
 	0x00, 0x00,
-}
-
-// Reference imports to suppress errors if they are not otherwise used.
-var _ context.Context
-var _ grpc.ClientConn
-
-// This is a compile-time assertion to ensure that this generated file
-// is compatible with the grpc package it is being compiled against.
-const _ = grpc.SupportPackageIsVersion4
-
-// DnaProcessClient is the client API for DnaProcess service.
-//
-// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://godoc.org/google.golang.org/grpc#ClientConn.NewStream.
-type DnaProcessClient interface {
-	CollectGoModules(ctx context.Context, in *CollectGoModulesRequest, opts ...grpc.CallOption) (*CollectGoModulesResponse, error)
-	CollectFilesAndImports(ctx context.Context, in *CollectFilesAndImportsRequest, opts ...grpc.CallOption) (*CollectFilesAndImportsResponse, error)
-}
-
-type dnaProcessClient struct {
-	cc *grpc.ClientConn
-}
-
-func NewDnaProcessClient(cc *grpc.ClientConn) DnaProcessClient {
-	return &dnaProcessClient{cc}
-}
-
-func (c *dnaProcessClient) CollectGoModules(ctx context.Context, in *CollectGoModulesRequest, opts ...grpc.CallOption) (*CollectGoModulesResponse, error) {
-	out := new(CollectGoModulesResponse)
-	err := c.cc.Invoke(ctx, "/wxio.dna.source.DnaProcess/CollectGoModules", in, out, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *dnaProcessClient) CollectFilesAndImports(ctx context.Context, in *CollectFilesAndImportsRequest, opts ...grpc.CallOption) (*CollectFilesAndImportsResponse, error) {
-	out := new(CollectFilesAndImportsResponse)
-	err := c.cc.Invoke(ctx, "/wxio.dna.source.DnaProcess/CollectFilesAndImports", in, out, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-// DnaProcessServer is the server API for DnaProcess service.
-type DnaProcessServer interface {
-	CollectGoModules(context.Context, *CollectGoModulesRequest) (*CollectGoModulesResponse, error)
-	CollectFilesAndImports(context.Context, *CollectFilesAndImportsRequest) (*CollectFilesAndImportsResponse, error)
-}
-
-// UnimplementedDnaProcessServer can be embedded to have forward compatible implementations.
-type UnimplementedDnaProcessServer struct {
-}
-
-func (*UnimplementedDnaProcessServer) CollectGoModules(ctx context.Context, req *CollectGoModulesRequest) (*CollectGoModulesResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method CollectGoModules not implemented")
-}
-func (*UnimplementedDnaProcessServer) CollectFilesAndImports(ctx context.Context, req *CollectFilesAndImportsRequest) (*CollectFilesAndImportsResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method CollectFilesAndImports not implemented")
-}
-
-func RegisterDnaProcessServer(s *grpc.Server, srv DnaProcessServer) {
-	s.RegisterService(&_DnaProcess_serviceDesc, srv)
-}
-
-func _DnaProcess_CollectGoModules_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(CollectGoModulesRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(DnaProcessServer).CollectGoModules(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: "/wxio.dna.source.DnaProcess/CollectGoModules",
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(DnaProcessServer).CollectGoModules(ctx, req.(*CollectGoModulesRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _DnaProcess_CollectFilesAndImports_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(CollectFilesAndImportsRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(DnaProcessServer).CollectFilesAndImports(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: "/wxio.dna.source.DnaProcess/CollectFilesAndImports",
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(DnaProcessServer).CollectFilesAndImports(ctx, req.(*CollectFilesAndImportsRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-var _DnaProcess_serviceDesc = grpc.ServiceDesc{
-	ServiceName: "wxio.dna.source.DnaProcess",
-	HandlerType: (*DnaProcessServer)(nil),
-	Methods: []grpc.MethodDesc{
-		{
-			MethodName: "CollectGoModules",
-			Handler:    _DnaProcess_CollectGoModules_Handler,
-		},
-		{
-			MethodName: "CollectFilesAndImports",
-			Handler:    _DnaProcess_CollectFilesAndImports_Handler,
-		},
-	},
-	Streams:  []grpc.StreamDesc{},
-	Metadata: "source.v1.proto",
 }

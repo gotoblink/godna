@@ -6,10 +6,8 @@ includes  : [
 	"../dna/vendor/grpc_gateway"
 ]
 plugin_output_dir : <
-	path: "pb"
-	out_type: GO_MODS
+	path: "."
 	generator : < plugin : < go : < 
-		plugins: Grpc
 		paths: Source_Relative
 	>>>
 >

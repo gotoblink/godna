@@ -14,16 +14,15 @@ import (
 )
 
 func (proc *ProtocIt) Process(cmd *generate) (string, error) {
-	if err := os.MkdirAll(filepath.Join(cmd.OutputDir, "descriptor_set"), os.ModePerm); err != nil {
-		return "err: mkdir -p " + cmd.OutputDir + "/descriptor_set", err
-	}
-
+	// if err := os.MkdirAll(filepath.Join(cmd.OutputDir, "descriptor_set"), os.ModePerm); err != nil {
+	// 	return "err: mkdir -p " + cmd.OutputDir + "/descriptor_set", err
+	// }
 	for _, pkg := range proc.goPkgs.Pkgs {
 		if _, ex := cmd.steps["protoc_plugs"]; ex {
 			fmt.Printf("protoc                       %s %s\n", pkg.Pkg, pkg.Files)
 			for _, pod := range cmd.cfg.PluginOutputDir {
 				for _, gen := range pod.Generator {
-					outAbs := filepath.Join(cmd.OutputDir, pkg.Pkg[len(cmd.cfg.GetGoPackagePrefix()):])
+					outAbs := filepath.Join(cmd.OutputDir, pod.Path, pkg.Pkg[len(cmd.cfg.GetGoPackagePrefix()):])
 					if err := os.MkdirAll(outAbs, os.ModePerm); err != nil {
 						return "err: mkdir -p " + outAbs, err
 					}
@@ -65,9 +64,7 @@ func protoc(in goPkg2, genCmd *generate, outAbs string, pod *config.Config_Plugi
 	}
 	cmd.Args = append(cmd.Args, args...)
 	cmd.Dir = genCmd.cfg.SrcDir
-	if genCmd.Debug {
-		fmt.Printf("\t\tcmd:%v\n", cmd.Args)
-	}
+	genCmd.Debugf("\tcmd:%v\n", cmd.Args)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		scmd := fmt.Sprintf("( cd %v; %v)\n", cmd.Dir, strings.Join(cmd.Args, " "))
@@ -79,9 +76,9 @@ func protoc(in goPkg2, genCmd *generate, outAbs string, pod *config.Config_Plugi
 	return fmt.Sprintf("%s\ncmd %v\nmsg:%s\n", genCmd.cfg.SrcDir, cmd.Args, string(out)), err
 }
 
-// --descriptor_set_out=FILE
 func protoc_descriptor_set_out(in goPkg2, genCmd *generate) (fds []byte, message string, e error) {
 	cmd := exec.Command("protoc")
+	// TODO os dependant - check os
 	args := []string{"--descriptor_set_out=/dev/stdout"}
 	args = append(args, "-I"+in.RelDir)
 	for _, inc := range genCmd.cfg.Includes {
@@ -96,9 +93,7 @@ func protoc_descriptor_set_out(in goPkg2, genCmd *generate) (fds []byte, message
 	}
 	cmd.Args = append(cmd.Args, args...)
 	cmd.Dir = genCmd.cfg.SrcDir
-	if genCmd.Debug {
-		fmt.Printf("\t\tcmd:%v\n", cmd.Args)
-	}
+	genCmd.Debugf("\t\tcmd:%v\n", cmd.Args)
 	var bo, be bytes.Buffer
 	cmd.Stdout = &bo
 	cmd.Stderr = &be

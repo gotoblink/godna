@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/wxio/godna/pb/dna/config"
 
@@ -20,6 +21,13 @@ var (
 )
 
 type root struct {
+	Debug bool
+}
+
+func (r root) Debugf(format string, a ...interface{}) {
+	if r.Debug {
+		fmt.Fprintf(os.Stderr, format, a...)
+	}
 }
 
 type versionCmd struct {
@@ -27,10 +35,11 @@ type versionCmd struct {
 }
 
 func main() {
+	ro := &root{}
 	cfg := &config.Config{}
 	rcmd := regen.New(cfg)
-	gen_cmd := generate.New(cfg)
-	opts.New(&root{}).
+	gen_cmd := generate.New(cfg, ro)
+	opts.New(ro).
 		Name("godna").
 		EmbedGlobalFlagSet().
 		Complete().

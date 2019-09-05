@@ -40,7 +40,8 @@ func step4(gensByOut []*goPkgAbsOut, rootOutDir string, cfg *config.Config) erro
 		for _, pod := range cfg.PluginOutputDir {
 			fmt.Printf("\t%s\n", pkg.absOut)
 			for _, gen := range pod.Generator {
-				if msg, err := protoc(pkg.pkgx, cfg.SrcDir, pkg.absOut, pod, gen, cfg.Includes); err != nil {
+				plg := protocGenerator(gen)
+				if msg, err := protoc(pkg.pkgx, cfg.SrcDir, pkg.absOut, plg, cfg.Includes); err != nil {
 					fmt.Println(msg)
 					return err
 				}
@@ -172,7 +173,7 @@ func gitGetTagSemver(inside_repo string) (map[string]map[int64]utils.Semvers, er
 	return ret, nil
 }
 
-func protocGenerator(outdir string, gen *config.Config_Generator) string {
+func protocGenerator(gen *config.Config_Generator) string {
 	switch plg := gen.GetPlugin().GetCmd().(type) {
 	case *config.Config_Generator_Plugin_Go:
 		name := "--go_out="
@@ -184,13 +185,13 @@ func protocGenerator(outdir string, gen *config.Config_Generator) string {
 			}
 		}
 		args = append(args, "paths="+strings.ToLower(plg.Go.Paths.String()))
-		name = name + strings.Join(args, ",") + ":" + outdir
+		name = name + strings.Join(args, ",") + ":"
 		return name
 	case *config.Config_Generator_Plugin_Micro:
 		name := "--micro_out="
 		args := []string{}
 		args = append(args, "paths="+strings.ToLower(plg.Micro.Paths.String()))
-		name = name + strings.Join(args, ",") + ":" + outdir
+		name = name + strings.Join(args, ",") + ":"
 		return name
 	case *config.Config_Generator_Plugin_GrpcGateway:
 		name := "--grpc-gateway_out="
@@ -199,7 +200,7 @@ func protocGenerator(outdir string, gen *config.Config_Generator) string {
 		if plg.GrpcGateway.RegisterFuncSuffix != "" {
 			args = append(args, "register_func_suffix="+plg.GrpcGateway.RegisterFuncSuffix)
 		}
-		name = name + strings.Join(args, ",") + ":" + outdir
+		name = name + strings.Join(args, ",") + ":"
 		return name
 	case *config.Config_Generator_Plugin_Swagger:
 		name := "--swagger_out="
@@ -209,13 +210,13 @@ func protocGenerator(outdir string, gen *config.Config_Generator) string {
 		} else {
 			args = append(args, "logtostderr=false")
 		}
-		name = name + strings.Join(args, ",") + ":" + outdir
+		name = name + strings.Join(args, ",") + ":"
 		return name
 	case *config.Config_Generator_Plugin_Gotag:
 		name := "--gotag_out="
 		args := []string{}
 		args = append(args, "paths="+strings.ToLower(plg.Gotag.Paths.String()))
-		name = name + strings.Join(args, ",") + ":" + outdir
+		name = name + strings.Join(args, ",") + ":"
 		return name
 	default:
 		fmt.Printf("unknown plugin %T\n", plg)
@@ -224,10 +225,9 @@ func protocGenerator(outdir string, gen *config.Config_Generator) string {
 	return ""
 }
 
-func protoc(in goModWithFilesImports, srcdir string, outAbs string, pod *config.Config_PluginOutDir, gen *config.Config_Generator, includes []string) (message string, e error) {
+func protoc(in goModWithFilesImports, srcdir string, outAbs string, plg string, includes []string) (message string, e error) {
 	cmd := exec.Command("protoc")
-	plg := protocGenerator(outAbs, gen)
-	args := []string{plg}
+	args := []string{plg + outAbs}
 	// args = append(args, "-I..")
 	args = append(args, "-I"+in.RelDir)
 	for _, inc := range includes {
