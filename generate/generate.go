@@ -11,18 +11,19 @@ import (
 
 type generate struct {
 	debugger
-	cfg              *config.Config
-	OutputDir        string `opts:"mode=arg" help:"output directory eg ."`
-	StepProtoc       bool   `opts:"short=p" help:"run the protoc step"`
-	StepGomodAll     bool   `opts:"short=m" help:"run all go mod steps. Overrides the individual --step-gomod-x flags (ie or'ed)"`
-	StepGomodInit    bool
-	StepGomodCfg     bool
-	StepGomodLocal   bool
-	StepGomodTidy    bool
-	StepGomodVersion bool
-	StepGitAll       bool `opts:"short=g"`
-	StepGitCommit    bool
-	StepGetTag       bool
+	cfg                 *config.Config
+	OutputDir           string `opts:"mode=arg" help:"output directory eg ."`
+	StepProtoc          bool   `opts:"short=p" help:"run the protoc step"`
+	StepGomodAll        bool   `opts:"short=m" help:"run all go mod steps. Overrides the individual steps (ie or'ed)"`
+	StepGomodInit       bool   `help:"go mod init for all specified go modules. Does not overwrite existing. \nie containing\n\timport \"dna/store.v1.proto\";\n\toption (wxio.dna.store) = {\n\t\tgo_mod : true\n\t};\nusually stored in vendor/wxio"`
+	StepGomodCfg        bool   `help:"go mod edit -require <spec'ed in config>"`
+	StepGomodLocal      bool   `help:"need for local dev & 'tidy'.\ngo mod edit -replace <proto import>=../[../]*/<local code>"`
+	StepGomodTidy       bool   `help:"go mod tidy"`
+	StepGomodVersion    bool   `help:"go mod edit -dropreplace & -require for imported modules"`
+	StepGitAll          bool   `opts:"short=g" help:"git add, commit & tag"`
+	StepGitAdd          bool   `help:"git add"`
+	StepGitAddCommit    bool   `help:"git add & commit"`
+	StepGitAddCommitTag bool   `help:"git add, commit & tag"`
 	// Steps            []string `help:" defaults (protoc_plugs, protoc_file_description_set:gomod,gitcommit,gittag)"`
 	//
 	// steps map[string]map[string]bool
@@ -50,8 +51,9 @@ func (cmd *generate) Run() error {
 		cmd.StepGomodTidy ||
 		cmd.StepGomodVersion ||
 		cmd.StepGitAll ||
-		cmd.StepGitCommit ||
-		cmd.StepGetTag) {
+		cmd.StepGitAdd ||
+		cmd.StepGitAddCommit ||
+		cmd.StepGitAddCommitTag) {
 		return fmt.Errorf("No step specified. See help.\n")
 	}
 	var err error

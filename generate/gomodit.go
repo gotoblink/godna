@@ -29,7 +29,11 @@ func (proc *GoModIt) Process(cmd *generate) (string, error) {
 		cmd.StepGomodCfg ||
 		cmd.StepGomodLocal ||
 		cmd.StepGomodTidy ||
-		cmd.StepGomodVersion {
+		cmd.StepGomodVersion ||
+		cmd.StepGitAll ||
+		cmd.StepGitAdd ||
+		cmd.StepGitAddCommit ||
+		cmd.StepGitAddCommitTag {
 		msg, err := proc.collectModules(cmd)
 		if err != nil {
 			return msg, err
@@ -38,7 +42,14 @@ func (proc *GoModIt) Process(cmd *generate) (string, error) {
 		nextSemvers := map[string]string{}
 		gitTagSemver := map[string]map[int64]utils.Semvers{}
 		pseudoVerion := ""
-		if cmd.StepGomodAll || cmd.StepGomodLocal || cmd.StepGomodTidy || cmd.StepGomodVersion {
+		if cmd.StepGomodAll ||
+			cmd.StepGomodLocal ||
+			cmd.StepGomodTidy ||
+			cmd.StepGomodVersion ||
+			cmd.StepGitAll ||
+			cmd.StepGitAdd ||
+			cmd.StepGitAddCommit ||
+			cmd.StepGitAddCommitTag {
 			gitTagSemver, pseudoVerion, err = gitGetTagSemver(cmd)
 			if err != nil {
 				return "", err
@@ -46,6 +57,8 @@ func (proc *GoModIt) Process(cmd *generate) (string, error) {
 			updateSemver = true
 		}
 		//
+		remote, desc := utils.Describe(cmd.cfg.SrcDir)
+		commitMsg := remote + " " + desc
 		for _, gomod := range proc.gomods {
 			for _, pod := range cmd.cfg.PluginOutputDir {
 				if pod.OutType == config.Config_PluginOutDir_GO_MODS {
@@ -94,6 +107,34 @@ func (proc *GoModIt) Process(cmd *generate) (string, error) {
 							sem := nextSemvers[base]
 							gomod.version = sem
 						}
+						//
+						if cmd.StepGitAll ||
+							cmd.StepGitAdd ||
+							cmd.StepGitAddCommit ||
+							cmd.StepGitAddCommitTag {
+							if msg, err := git_add(cmd, gomod, pod.Path, localPkgPart); // gitTagSemver, pseudoVerion,
+							err != nil {
+								return msg, err
+							}
+						}
+						if cmd.StepGitAll ||
+							cmd.StepGitAddCommit ||
+							cmd.StepGitAddCommitTag {
+							if msg, err := git_commit(cmd, gomod, pod.Path, localPkgPart,
+								commitMsg,
+							); err != nil {
+								return msg, err
+							}
+						}
+						if cmd.StepGitAll ||
+							cmd.StepGitAddCommitTag {
+							if msg, err := git_tag(cmd, gomod, pod.Path, localPkgPart,
+								commitMsg,
+							); err != nil {
+								return msg, err
+							}
+						}
+
 					}
 				}
 			}
