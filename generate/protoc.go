@@ -17,9 +17,10 @@ func (proc *ProtocIt) Process(cmd *generate) (string, error) {
 	// if err := os.MkdirAll(filepath.Join(cmd.OutputDir, "descriptor_set"), os.ModePerm); err != nil {
 	// 	return "err: mkdir -p " + cmd.OutputDir + "/descriptor_set", err
 	// }
+	fmt.Printf("#--step-protoc\n")
 	for _, pkg := range proc.goPkgs.Pkgs {
 		if cmd.StepProtoc {
-			fmt.Printf("protoc                       %s %s\n", pkg.Pkg, pkg.Files)
+			fmt.Printf("protoc %s %s\n", pkg.Pkg, pkg.Files)
 			for _, pod := range cmd.cfg.PluginOutputDir {
 				for _, gen := range pod.Generator {
 					outAbs := filepath.Join(cmd.OutputDir, pod.Path, pkg.Pkg[len(cmd.cfg.GetGoPackagePrefix()):])
@@ -33,12 +34,11 @@ func (proc *ProtocIt) Process(cmd *generate) (string, error) {
 				}
 			}
 		}
-		if cmd.StepGomodAll ||
-			cmd.StepGomodInit ||
-			cmd.StepGomodCfg ||
-			cmd.StepGomodLocal ||
-			cmd.StepGomodTidy ||
-			cmd.StepGomodVersion {
+	}
+	//
+	fmt.Printf("#internal --step-protoc_file_description_set--\n")
+	for _, pkg := range proc.goPkgs.Pkgs {
+		if cmd.stepFDS {
 			fmt.Printf("protoc_file_description_set: %s %s\n", pkg.Pkg, pkg.Files)
 			// outFile := filepath.Join(cmd.OutputDir, "descriptor_set", strings.Replace(pkg.Pkg, "/", "_", -1)+".fds")
 			fds, msg, err := protoc_descriptor_set_out(*pkg, cmd)

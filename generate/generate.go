@@ -13,9 +13,10 @@ type generate struct {
 	debugger
 	cfg                 *config.Config
 	OutputDir           string `opts:"mode=arg" help:"output directory eg ."`
-	StepProtoc          bool   `opts:"short=p" help:"run the protoc step"`
+	StepAll             bool   `opts:"short=s" help:"run all steps (step-protoc, step-gomod-all, step-git-all)"`
+	StepProtoc          bool   `opts:"short=p" help:"run the protoc\n (default true)"`
 	StepGomodAll        bool   `opts:"short=m" help:"run all go mod steps. Overrides the individual steps (ie or'ed)"`
-	StepGomodInit       bool   `help:"go mod init for all specified go modules. Does not overwrite existing. \nie containing\n\timport \"dna/store.v1.proto\";\n\toption (wxio.dna.store) = {\n\t\tgo_mod : true\n\t};\nusually stored in vendor/wxio"`
+	StepGomodInit       bool   `help:"go mod init for all specified go modules.\nDoes not overwrite existing go.mod files.\nie containing\n\timport \"dna/store.v1.proto\";\n\toption (wxio.dna.store) = {\n\t\tgo_mod : true\n\t};\nstore.v1.proto usually stored in vendor/wxio"`
 	StepGomodCfg        bool   `help:"go mod edit -require <spec'ed in config>"`
 	StepGomodLocal      bool   `help:"need for local dev & 'tidy'.\ngo mod edit -replace <proto import>=../[../]*/<local code>"`
 	StepGomodTidy       bool   `help:"go mod tidy"`
@@ -24,9 +25,9 @@ type generate struct {
 	StepGitAdd          bool   `help:"git add"`
 	StepGitAddCommit    bool   `help:"git add & commit"`
 	StepGitAddCommitTag bool   `help:"git add, commit & tag"`
-	// Steps            []string `help:" defaults (protoc_plugs, protoc_file_description_set:gomod,gitcommit,gittag)"`
 	//
-	// steps map[string]map[string]bool
+	stepFDS          bool
+	stepUpdateSemver bool
 }
 
 type debugger interface {
@@ -35,15 +36,16 @@ type debugger interface {
 
 func New(cfg *config.Config, de debugger) *generate {
 	return &generate{
-		debugger:   de,
-		StepProtoc: true,
+		debugger: de,
+		// StepProtoc: true,
 		// Steps: []string{"protoc_plugs", "protoc_file_description_set:gomod,gitcommit,gittag"},
 		cfg: cfg,
 	}
 }
 
 func (cmd *generate) Run() error {
-	if !(cmd.StepProtoc ||
+	if !(cmd.StepAll ||
+		cmd.StepProtoc ||
 		cmd.StepGomodAll ||
 		cmd.StepGomodInit ||
 		cmd.StepGomodCfg ||
@@ -54,8 +56,64 @@ func (cmd *generate) Run() error {
 		cmd.StepGitAdd ||
 		cmd.StepGitAddCommit ||
 		cmd.StepGitAddCommitTag) {
-		return fmt.Errorf("No step specified. See help.\n")
+		cmd.Debugf("Default cmd.StepProtoc = true")
+		cmd.StepProtoc = true
+		// return fmt.Errorf("No step specified. See help.\n")
 	}
+	if cmd.StepAll {
+		cmd.Debugf("All Steps")
+		cmd.StepProtoc = true
+		cmd.StepGomodAll = true
+		cmd.StepGitAll = true
+	}
+	if cmd.StepGomodAll ||
+		cmd.StepGomodInit ||
+		cmd.StepGomodCfg ||
+		cmd.StepGomodLocal ||
+		cmd.StepGomodTidy ||
+		cmd.StepGomodVersion ||
+		cmd.StepGitAll ||
+		cmd.StepGitAdd ||
+		cmd.StepGitAddCommit ||
+		cmd.StepGitAddCommitTag {
+		cmd.Debugf("Steps FDS")
+		cmd.stepFDS = true
+	}
+	if cmd.StepGomodAll ||
+		cmd.StepGomodLocal ||
+		cmd.StepGomodTidy ||
+		cmd.StepGomodVersion ||
+		cmd.StepGitAll ||
+		cmd.StepGitAdd ||
+		cmd.StepGitAddCommit ||
+		cmd.StepGitAddCommitTag {
+		cmd.Debugf("Step Update Semver")
+		cmd.stepUpdateSemver = true
+	}
+	if cmd.StepGomodAll {
+		cmd.Debugf("Step Go Mod All")
+		cmd.StepGomodInit = true
+		cmd.StepGomodCfg = true
+		cmd.StepGomodLocal = true
+		cmd.StepGomodTidy = true
+		cmd.StepGomodVersion = true
+	}
+	if cmd.StepGitAll {
+		cmd.Debugf("Step Git All")
+		cmd.StepGitAdd = true
+		cmd.StepGitAddCommit = true
+		cmd.StepGitAddCommitTag = true
+	}
+	if cmd.StepGitAddCommit {
+		cmd.Debugf("Step Git Add Commit")
+		cmd.StepGitAdd = true
+	}
+	if cmd.StepGitAddCommitTag {
+		cmd.Debugf("Step Git Add Commit Tag")
+		cmd.StepGitAdd = true
+		cmd.StepGitAddCommit = true
+	}
+	//
 	var err error
 	cmd.cfg.SrcDir = os.ExpandEnv(cmd.cfg.SrcDir)
 	cmd.cfg.SrcDir, err = filepath.Abs(cmd.cfg.SrcDir)

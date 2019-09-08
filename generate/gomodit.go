@@ -38,23 +38,14 @@ func (proc *GoModIt) Process(cmd *generate) (string, error) {
 		if err != nil {
 			return msg, err
 		}
-		updateSemver := false
 		nextSemvers := map[string]string{}
 		gitTagSemver := map[string]map[int64]utils.Semvers{}
 		pseudoVerion := ""
-		if cmd.StepGomodAll ||
-			cmd.StepGomodLocal ||
-			cmd.StepGomodTidy ||
-			cmd.StepGomodVersion ||
-			cmd.StepGitAll ||
-			cmd.StepGitAdd ||
-			cmd.StepGitAddCommit ||
-			cmd.StepGitAddCommitTag {
+		if cmd.stepUpdateSemver {
 			gitTagSemver, pseudoVerion, err = gitGetTagSemver(cmd)
 			if err != nil {
 				return "", err
 			}
-			updateSemver = true
 		}
 		//
 		remote, desc := utils.Describe(cmd.cfg.SrcDir)
@@ -62,79 +53,73 @@ func (proc *GoModIt) Process(cmd *generate) (string, error) {
 		for _, gomod := range proc.gomods {
 			for _, pod := range cmd.cfg.PluginOutputDir {
 				if pod.OutType == config.Config_PluginOutDir_GO_MODS {
+					cmd.Debugf("Loop Gomod, Git : %s\n", gomod.pkg.Pkg)
 					localPkgPart := gomod.pkg.Pkg[len(cmd.cfg.GetGoPackagePrefix())+1:]
 					outAbs := filepath.Join(cmd.OutputDir, pod.Path, localPkgPart)
 					if err := os.MkdirAll(outAbs, os.ModePerm); err != nil {
 						return "err: mkdir -p " + outAbs, err
 					}
-					if cmd.StepGomodAll || cmd.StepGomodInit {
+					if cmd.StepGomodInit {
 						if msg, err := gomodinit(cmd, gomod, pod.Path, localPkgPart); err != nil {
 							return msg, err
 						}
 					}
-					if cmd.StepGomodAll || cmd.StepGomodCfg {
+					if cmd.StepGomodCfg {
 						if msg, err := gomodrequire_config(cmd, gomod, pod.Path, localPkgPart); err != nil {
 							return msg, err
 						}
 					}
-					{
-						if cmd.StepGomodAll || cmd.StepGomodLocal {
-							if msg, err := gomodrequire_local(cmd, gomod, pod.Path, localPkgPart,
-								// gitTagSemver, pseudoVerion,
-								nextSemvers); err != nil {
-								return msg, err
-							}
+					if cmd.StepGomodLocal {
+						if msg, err := gomodrequire_local(cmd, gomod, pod.Path, localPkgPart,
+							// gitTagSemver, pseudoVerion,
+							nextSemvers); err != nil {
+							return msg, err
 						}
-						if cmd.StepGomodAll || cmd.StepGomodTidy {
-							if msg, err := gomodrequire_tidy(cmd, gomod, pod.Path, localPkgPart); err != nil {
-								return msg, err
-							}
+					}
+					if cmd.StepGomodTidy {
+						if msg, err := gomodrequire_tidy(cmd, gomod, pod.Path, localPkgPart); err != nil {
+							return msg, err
 						}
-						if cmd.StepGomodAll || cmd.StepGomodVersion {
-							if msg, err := gomodrequire_version(cmd, gomod, pod.Path, localPkgPart,
-								// gitTagSemver, pseudoVerion,
-								nextSemvers); err != nil {
-								return msg, err
-							}
+					}
+					if cmd.StepGomodVersion {
+						if msg, err := gomodrequire_version(cmd, gomod, pod.Path, localPkgPart,
+							// gitTagSemver, pseudoVerion,
+							nextSemvers); err != nil {
+							return msg, err
 						}
-						if updateSemver {
-							if msg, err := update_next_semver(cmd, gomod, pod.Path, localPkgPart,
-								gitTagSemver, pseudoVerion,
-								nextSemvers); err != nil {
-								return msg, err
-							}
-							base := gomod.pkg.Pkg[len(cmd.cfg.GoPackagePrefix)+1:]
-							sem := nextSemvers[base]
-							gomod.version = sem
+					}
+					if cmd.stepUpdateSemver {
+						if msg, err := update_next_semver(cmd, gomod, pod.Path, localPkgPart,
+							gitTagSemver, pseudoVerion,
+							nextSemvers); err != nil {
+							return msg, err
 						}
-						//
-						if cmd.StepGitAll ||
-							cmd.StepGitAdd ||
-							cmd.StepGitAddCommit ||
-							cmd.StepGitAddCommitTag {
+						base := gomod.pkg.Pkg[len(cmd.cfg.GoPackagePrefix)+1:]
+						sem := nextSemvers[base]
+						gomod.version = sem
+					}
+					//
+					if len(gomod.dirty) != 0 {
+						if cmd.StepGitAdd {
 							if msg, err := git_add(cmd, gomod, pod.Path, localPkgPart); // gitTagSemver, pseudoVerion,
 							err != nil {
 								return msg, err
 							}
 						}
-						if cmd.StepGitAll ||
-							cmd.StepGitAddCommit ||
-							cmd.StepGitAddCommitTag {
+						if cmd.StepGitAddCommit {
 							if msg, err := git_commit(cmd, gomod, pod.Path, localPkgPart,
 								commitMsg,
 							); err != nil {
 								return msg, err
 							}
 						}
-						if cmd.StepGitAll ||
-							cmd.StepGitAddCommitTag {
+						if cmd.StepGitAddCommitTag {
 							if msg, err := git_tag(cmd, gomod, pod.Path, localPkgPart,
 								commitMsg,
 							); err != nil {
 								return msg, err
 							}
 						}
-
 					}
 				}
 			}
@@ -460,71 +445,4 @@ func pkgModVersion(dirname string) int64 {
 		}
 	}
 	return 1
-}
-
-var pathSemver = regexp.MustCompile(`^(.+)/v(\d+)\.(\d+)\.(\d+)$`)
-var repoSemver = regexp.MustCompile(`^v(\d+)\.(\d+)\.(\d+)$`)
-
-func gitGetTagSemver(gcmd *generate) (map[string]map[int64]utils.Semvers, string, error) {
-	pseudo_version := ""
-	{
-		cmd := exec.Command("git")
-		cmd.Dir = gcmd.OutputDir
-		// cmd.Dir = filepath.Join(in.OutputDir, tp.dirn)
-		args := []string{
-			"log",
-			"-n", "1",
-			`--pretty=format:%ad:%H`,
-			"--decorate", `--date=format:%Y%m%d%H%M%S`,
-		}
-		cmd.Args = append(cmd.Args, args...)
-		out, err := cmd.CombinedOutput()
-		if err != nil {
-			return nil, "", fmt.Errorf("%v\n---\n%s\n---\n", err, string(out))
-		}
-		parts := strings.Split(string(out), ":")
-		pseudo_version = fmt.Sprintf("v0.0.0-%s-%.12s", parts[0], parts[1])
-	}
-	ret := map[string]map[int64]utils.Semvers{}
-	cmd := exec.Command("git")
-	cmd.Dir = gcmd.OutputDir
-	// cmd.Dir = filepath.Join(in.OutputDir, tp.dirn)
-	args := []string{
-		"tag",
-	}
-	cmd.Args = append(cmd.Args, args...)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return nil, "", err
-	}
-	scan := bufio.NewScanner(bytes.NewBuffer(out))
-	for scan.Scan() {
-		line := scan.Text()
-		match := pathSemver.FindStringSubmatch(line)
-		if len(match) == 0 {
-			if !repoSemver.MatchString(line) {
-				gcmd.Debugf("Does tag look right ? %v\n", line)
-				q.Q("tag does look right %v\n", line)
-			}
-			continue
-		}
-		q.Q("tag %v\n", line)
-		modName := match[1]
-		ma, _ := strconv.ParseInt(match[2], 10, 64)
-		mi, _ := strconv.ParseInt(match[3], 10, 64)
-		pa, _ := strconv.ParseInt(match[4], 10, 64)
-		sem := utils.Semver{Major: ma, Minor: mi, Patch: pa}
-		sems, ex := ret[modName]
-		if !ex {
-			sems = make(map[int64]utils.Semvers)
-			sems[ma] = utils.Semvers{sem}
-			gcmd.Debugf("  add semver key: %s ver: %v\n", modName, sem)
-			// ret[modName] = sems
-		} else {
-			gcmd.Debugf("  add semver key: %s ver: %v\n", modName, sem)
-			sems[ma] = append(sems[ma], sem)
-		}
-		ret[modName] = sems
-	}
-	return ret, pseudo_version, nil
 }
