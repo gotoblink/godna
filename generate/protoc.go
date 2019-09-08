@@ -13,6 +13,21 @@ import (
 	"github.com/wxio/godna/pb/dna/config"
 )
 
+func (proc *ProtocFdsIt) Process(cmd *generateFDS) (string, error) {
+	//
+	fmt.Printf("#internal --step-protoc_file_description_set--\n")
+	for _, pkg := range proc.goPkgs.Pkgs {
+		fmt.Printf("protoc_file_description_set: %s %s\n", pkg.Pkg, pkg.Files)
+		outFile := filepath.Join(cmd.OutputDir, "descriptor_set", strings.Replace(pkg.Pkg, "/", "_", -1)+".fds")
+		_, msg, err := protoc_descriptor_set_out(*pkg, cmd, outFile)
+		if err != nil {
+			return msg, err
+		}
+		// proc.FileDescriptorSet = append(proc.FileDescriptorSet, fds...)
+	}
+	return "", nil
+}
+
 func (proc *ProtocIt) Process(cmd *generate) (string, error) {
 	// if err := os.MkdirAll(filepath.Join(cmd.OutputDir, "descriptor_set"), os.ModePerm); err != nil {
 	// 	return "err: mkdir -p " + cmd.OutputDir + "/descriptor_set", err
@@ -41,7 +56,7 @@ func (proc *ProtocIt) Process(cmd *generate) (string, error) {
 		if cmd.stepFDS {
 			fmt.Printf("protoc_file_description_set: %s %s\n", pkg.Pkg, pkg.Files)
 			// outFile := filepath.Join(cmd.OutputDir, "descriptor_set", strings.Replace(pkg.Pkg, "/", "_", -1)+".fds")
-			fds, msg, err := protoc_descriptor_set_out(*pkg, cmd)
+			fds, msg, err := protoc_descriptor_set_out(*pkg, cmd, "/dev/stdout")
 			if err != nil {
 				return msg, err
 			}
@@ -81,12 +96,12 @@ func protoc(in goPkg2, genCmd *generate, outAbs string, pod *config.Config_Plugi
 	return fmt.Sprintf("%s\ncmd %v\nmsg:%s\n", genCmd.cfg.SrcDir, cmd.Args, string(out)), err
 }
 
-func protoc_descriptor_set_out(in goPkg2, genCmd *generate) (fds []byte, message string, e error) {
+func protoc_descriptor_set_out(in goPkg2, genCmd genIF, out string) (fds []byte, message string, e error) {
 	cmd := exec.Command("protoc")
 	// TODO os dependant - check os
-	args := []string{"--descriptor_set_out=/dev/stdout"}
+	args := []string{"--descriptor_set_out=" + out}
 	args = append(args, "-I"+in.RelDir)
-	for _, inc := range genCmd.cfg.Includes {
+	for _, inc := range genCmd.GetIncludes() {
 		incAbs, err := filepath.Abs(inc)
 		if err != nil {
 			return nil, "abs file", err
@@ -97,7 +112,7 @@ func protoc_descriptor_set_out(in goPkg2, genCmd *generate) (fds []byte, message
 		args = append(args, fi)
 	}
 	cmd.Args = append(cmd.Args, args...)
-	cmd.Dir = genCmd.cfg.SrcDir
+	cmd.Dir = genCmd.GetSrcDir()
 	genCmd.Debugf("\t\tcmd:%v\n", cmd.Args)
 	var bo, be bytes.Buffer
 	cmd.Stdout = &bo
@@ -110,7 +125,7 @@ func protoc_descriptor_set_out(in goPkg2, genCmd *generate) (fds []byte, message
 		q.Q(scmd)
 		q.Q(sout)
 	}
-	return bo.Bytes(), fmt.Sprintf("%s\ncmd %v\nmsg:%s\n", genCmd.cfg.SrcDir, cmd.Args, string(be.Bytes())), err
+	return bo.Bytes(), fmt.Sprintf("%s\ncmd %v\nmsg:%s\n", genCmd.GetSrcDir(), cmd.Args, string(be.Bytes())), err
 }
 
 func protocGenerator(outdir string, gen *config.Config_Generator) string {

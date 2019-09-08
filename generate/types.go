@@ -11,6 +11,10 @@ type ProtocIt struct {
 	FileDescriptorSet []byte
 }
 
+type ProtocFdsIt struct {
+	goPkgs GoPackages
+}
+
 type GoModIt struct {
 	protocIt ProtocIt
 	gomods   []*goMod

@@ -9,9 +9,13 @@ import (
 	"github.com/wxio/godna/pb/dna/config"
 )
 
+type cfg struct {
+	*config.Config
+}
+
 type generate struct {
 	debugger
-	cfg                 *config.Config
+	cfg
 	OutputDir           string `opts:"mode=arg" help:"output directory eg ."`
 	StepAll             bool   `opts:"short=s" help:"run all steps (step-protoc, step-gomod-all, step-git-all)"`
 	StepProtoc          bool   `opts:"short=p" help:"run the protoc\n (default true)"`
@@ -30,16 +34,29 @@ type generate struct {
 	stepUpdateSemver bool
 }
 
+type generateFDS struct {
+	debugger
+	cfg
+	OutputDir string `opts:"mode=arg" help:"output directory eg ."`
+}
+
 type debugger interface {
 	Debugf(format string, a ...interface{})
 }
 
-func New(cfg *config.Config, de debugger) *generate {
+func New(cf *config.Config, de debugger) *generate {
 	return &generate{
 		debugger: de,
 		// StepProtoc: true,
 		// Steps: []string{"protoc_plugs", "protoc_file_description_set:gomod,gitcommit,gittag"},
-		cfg: cfg,
+		cfg: cfg{cf},
+	}
+}
+
+func NewFDS(cf *config.Config, de debugger) *generateFDS {
+	return &generateFDS{
+		debugger: de,
+		cfg:      cfg{cf},
 	}
 }
 
@@ -177,5 +194,58 @@ func (cmd *generate) Run() error {
 		return *goModIt
 	}
 	goModItF()
+	return nil
+}
+
+func (cmd *generateFDS) Run() error {
+	var err error
+	cmd.cfg.SrcDir = os.ExpandEnv(cmd.cfg.SrcDir)
+	cmd.cfg.SrcDir, err = filepath.Abs(cmd.cfg.SrcDir)
+	if err != nil {
+		return err
+	}
+	cmd.OutputDir = os.ExpandEnv(cmd.OutputDir)
+	cmd.OutputDir, err = filepath.Abs(cmd.OutputDir)
+	if err != nil {
+		return err
+	}
+	gopkgF := func() GoPackages {
+		gopkg := &GoPackages{}
+		if _, err = gopkg.Process(cmd); err != nil {
+			panic(err)
+			// return err
+		}
+		for _, pkg := range gopkg.Pkgs {
+			imps := collect(pkg, "", map[string]Void{})
+			pkg.Imports = *(imps.(*goPkgs2By))
+		}
+		// n := goPkgs2By(gopkg.Pkgs)
+		// sort.Sort(n)
+		gopkg.Pkgs = sortgoPkgs2By(gopkg.Pkgs)
+		for _, pkg := range gopkg.Pkgs {
+			padding := strings.Repeat(" ", gopkg.MaxPkgLen-len(pkg.Pkg))
+			pad2 := strings.Repeat(" ", gopkg.MaxRelDirLen-len(pkg.RelDir))
+			fmt.Printf("package: %s%s %s %sfiles: %s", pkg.Pkg, padding, pkg.RelDir, pad2, pkg.Files)
+			// fmt.Printf("  files: %v\n", pkg.Files)
+			if len(pkg.Imports) > 0 {
+				fmt.Printf(" import: %v", pkg.Imports)
+			}
+			fmt.Printf("\n")
+		}
+		return *gopkg
+	}
+	gopkg := gopkgF()
+	protocItF := func() ProtocFdsIt {
+		protocIt := &ProtocFdsIt{goPkgs: gopkg}
+		if msg, err := protocIt.Process(cmd); err != nil {
+			fmt.Printf("protoc error msg\n----\n%s\n----\n", msg)
+			panic(err)
+			// return err
+		}
+		return *protocIt
+	}
+	protocIt := protocItF()
+	_ = protocIt
+	//
 	return nil
 }

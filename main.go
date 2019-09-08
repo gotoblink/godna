@@ -39,6 +39,7 @@ func main() {
 	cfg := &config.Config{}
 	rcmd := regen.New(cfg)
 	gen_cmd := generate.New(cfg, ro)
+	genfds_cmd := generate.NewFDS(cfg, ro)
 	opt := opts.New(ro).
 		Name("godna").
 		EmbedGlobalFlagSet().
@@ -48,6 +49,8 @@ func main() {
 		AddCommand(opts.New(rcmd).Name("regen").
 			FieldConfigPath("./.dna-cfg.ptron", cfg)). //, "godna.Config")).
 		AddCommand(opts.New(gen_cmd).Name("generate").
+			FieldConfigPath("./.dna-cfg.ptron", cfg)).
+		AddCommand(opts.New(genfds_cmd).Name("generate_fds").
 			FieldConfigPath("./.dna-cfg.ptron", cfg)).
 		AddCommand(opts.New(bumptag.New()).Name("bumptag")).
 		AddCommand(opts.New(readfds.New()).Name("readfds")).

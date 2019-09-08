@@ -21,12 +21,19 @@ type goPkgName struct {
 }
 type goProtoPkg map[string][]protoFile
 
-func (proc *GoPackages) Process(cmd *generate) (string, error) {
-	goPkgPrefix := cmd.cfg.GetGoPackagePrefix()
+type genIF interface {
+	GetGoPackagePrefix() string
+	GetSrcDir() string
+	GetIncludes() []string
+	Debugf(format string, a ...interface{})
+}
+
+func (proc *GoPackages) Process(cmd genIF) (string, error) {
+	goPkgPrefix := cmd.GetGoPackagePrefix()
 	if goPkgPrefix == "" {
 		return "", fmt.Errorf("error go package prefix is manditory")
 	}
-	pfs, ordered_pkgnames, err := collectFiles(cmd.cfg.SrcDir)
+	pfs, ordered_pkgnames, err := collectFiles(cmd.GetSrcDir())
 	if err != nil {
 		return "", err
 	}
