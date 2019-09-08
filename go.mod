@@ -4,7 +4,7 @@ go 1.12
 
 replace github.com/jpillora/opts v1.1.0 => github.com/millergarym/opts v1.1.4
 
-replace github.com/jpillora/opts => /home/garym/go/src-mods/github.com/jpillora/opts
+//replace github.com/jpillora/opts => /home/garym/go/src-mods/github.com/jpillora/opts
 
 //replace github.com/wxio/godna/pb/extensions/store => ./pb/extensions/store
 
