@@ -1,19 +1,16 @@
 # Build
 FROM golang:1.13rc2 as builder
-# Install unzip, required to unzip the protoc zip
-RUN apt-get install -y unzip
 #
 # protoc
 ENV PROTOC_VERSION 3.9.0
+RUN apt-get install -y unzip
 RUN wget https://github.com/google/protobuf/releases/download/v$PROTOC_VERSION/protoc-$PROTOC_VERSION-linux-x86_64.zip && \
    unzip protoc-$PROTOC_VERSION-linux-x86_64.zip && \
    rm -f protoc-$PROTOC_VERSION-linux-x86_64.zip
 #
 # protoc-gen-go
 ENV GOLANG_PROTOBUF_VERSION v1.2.0
-RUN mkdir -p /go/src/github.com/golang && \
-   cd /go/src/github.com/golang && \
-   git clone https://github.com/golang/protobuf.git && \
+RUN git clone https://github.com/golang/protobuf.git && \
    cd protobuf && \
    git checkout $GOLANG_PROTOBUF_VERSION && \
    cd protoc-gen-go && \
@@ -44,7 +41,7 @@ RUN git clone https://github.com/envoyproxy/protoc-gen-validate.git && \
     go install
 #
 # godna
-ENV GODNA_VER v1.12.0
+ENV GODNA_VER v1.13.0
 RUN git clone https://github.com/wxio/godna /godna && \
     cd /godna && \
     git checkout $GODNA_VER && \
