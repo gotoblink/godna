@@ -13,13 +13,13 @@ import (
 	"github.com/wxio/godna/pb/dna/config"
 )
 
-func (proc *ProtocFdsIt) Process(cmd *generateFDS) (string, error) {
+func (proc *ProtocFdsIt) process(cmd *generateFDS) (string, error) {
 	//
 	fmt.Printf("#internal --step-protoc_file_description_set--\n")
 	for _, pkg := range proc.goPkgs.Pkgs {
 		fmt.Printf("protoc_file_description_set: %s %s\n", pkg.Pkg, pkg.Files)
 		outFile := filepath.Join(cmd.OutputDir, "descriptor_set", strings.Replace(pkg.Pkg, "/", "_", -1)+".fds")
-		_, msg, err := protoc_descriptor_set_out(*pkg, cmd, outFile)
+		_, msg, err := protocDescriptorSetOut(*pkg, cmd, outFile)
 		if err != nil {
 			return msg, err
 		}
@@ -28,13 +28,16 @@ func (proc *ProtocFdsIt) Process(cmd *generateFDS) (string, error) {
 	return "", nil
 }
 
-func (proc *ProtocIt) Process(cmd *generate) (string, error) {
+func (proc *ProtocIt) process(cmd *generate) (string, error) {
 	// if err := os.MkdirAll(filepath.Join(cmd.OutputDir, "descriptor_set"), os.ModePerm); err != nil {
 	// 	return "err: mkdir -p " + cmd.OutputDir + "/descriptor_set", err
 	// }
-	fmt.Printf("#--step-protoc\n")
-	for _, pkg := range proc.goPkgs.Pkgs {
-		if cmd.StepProtoc {
+	if cmd.StepProtoc {
+		fmt.Printf("#--step-protoc\n")
+		for _, pkg := range proc.goPkgs.Pkgs {
+			if !cmd.matchPackage(pkg.Pkg) {
+				continue
+			}
 			fmt.Printf("protoc %s %s\n", pkg.Pkg, pkg.Files)
 			for _, pod := range cmd.cfg.PluginOutputDir {
 				for _, gen := range pod.Generator {
@@ -51,12 +54,15 @@ func (proc *ProtocIt) Process(cmd *generate) (string, error) {
 		}
 	}
 	//
-	fmt.Printf("#internal --step-protoc_file_description_set--\n")
-	for _, pkg := range proc.goPkgs.Pkgs {
-		if cmd.stepFDS {
+	if cmd.stepFDS {
+		fmt.Printf("#internal --step-protoc_file_description_set--\n")
+		for _, pkg := range proc.goPkgs.Pkgs {
+			if !cmd.matchPackage(pkg.Pkg) {
+				continue
+			}
 			fmt.Printf("protoc_file_description_set: %s %s\n", pkg.Pkg, pkg.Files)
 			// outFile := filepath.Join(cmd.OutputDir, "descriptor_set", strings.Replace(pkg.Pkg, "/", "_", -1)+".fds")
-			fds, msg, err := protoc_descriptor_set_out(*pkg, cmd, "/dev/stdout")
+			fds, msg, err := protocDescriptorSetOut(*pkg, cmd, "/dev/stdout")
 			if err != nil {
 				return msg, err
 			}
@@ -96,7 +102,7 @@ func protoc(in goPkg2, genCmd *generate, outAbs string, pod *config.Config_Plugi
 	return fmt.Sprintf("%s\ncmd %v\nmsg:%s\n", genCmd.cfg.SrcDir, cmd.Args, string(out)), err
 }
 
-func protoc_descriptor_set_out(in goPkg2, genCmd genIF, out string) (fds []byte, message string, e error) {
+func protocDescriptorSetOut(in goPkg2, genCmd genIF, out string) (fds []byte, message string, e error) {
 	cmd := exec.Command("protoc")
 	// TODO os dependant - check os
 	args := []string{"--descriptor_set_out=" + out}

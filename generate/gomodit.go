@@ -23,7 +23,7 @@ import (
 	"github.com/golang/protobuf/protoc-gen-go/descriptor"
 )
 
-func (proc *GoModIt) Process(cmd *generate) (string, error) {
+func (proc *GoModIt) process(cmd *generate) (string, error) {
 	if cmd.StepGomodAll ||
 		cmd.StepGomodInit ||
 		cmd.StepGomodCfg ||
@@ -51,6 +51,9 @@ func (proc *GoModIt) Process(cmd *generate) (string, error) {
 		remote, desc := utils.Describe(cmd.cfg.SrcDir)
 		commitMsg := remote + " " + desc
 		for _, gomod := range proc.gomods {
+			if !cmd.matchPackage(gomod.pkg.Pkg) {
+				continue
+			}
 			for _, pod := range cmd.cfg.PluginOutputDir {
 				if pod.OutType == config.Config_PluginOutDir_GO_MODS {
 					cmd.Debugf("Loop Gomod, Git : %s\n", gomod.pkg.Pkg)
@@ -65,31 +68,31 @@ func (proc *GoModIt) Process(cmd *generate) (string, error) {
 						}
 					}
 					if cmd.StepGomodCfg {
-						if msg, err := gomodrequire_config(cmd, gomod, pod.Path, localPkgPart); err != nil {
+						if msg, err := gomodrequireConfig(cmd, gomod, pod.Path, localPkgPart); err != nil {
 							return msg, err
 						}
 					}
 					if cmd.StepGomodLocal {
-						if msg, err := gomodrequire_local(cmd, gomod, pod.Path, localPkgPart,
+						if msg, err := gomodrequireLocal(cmd, gomod, pod.Path, localPkgPart,
 							// gitTagSemver, pseudoVerion,
 							nextSemvers); err != nil {
 							return msg, err
 						}
 					}
 					if cmd.StepGomodTidy {
-						if msg, err := gomodrequire_tidy(cmd, gomod, pod.Path, localPkgPart); err != nil {
+						if msg, err := gomodrequireTidy(cmd, gomod, pod.Path, localPkgPart); err != nil {
 							return msg, err
 						}
 					}
 					if cmd.StepGomodVersion {
-						if msg, err := gomodrequire_version(cmd, gomod, pod.Path, localPkgPart,
+						if msg, err := gomodrequireVersion(cmd, gomod, pod.Path, localPkgPart,
 							// gitTagSemver, pseudoVerion,
 							nextSemvers); err != nil {
 							return msg, err
 						}
 					}
 					if cmd.stepUpdateSemver {
-						if msg, err := update_next_semver(cmd, gomod, pod.Path, localPkgPart,
+						if msg, err := updateNextSemver(cmd, gomod, pod.Path, localPkgPart,
 							gitTagSemver, pseudoVerion,
 							nextSemvers); err != nil {
 							return msg, err
@@ -151,7 +154,7 @@ func gomodinit(gcmd *generate, gomod *goMod, podPath, localPkgPart string) (stri
 	return "", nil
 }
 
-func gomodrequire_config(gcmd *generate, gomod *goMod, podPath, localPkgPart string) (string, error) {
+func gomodrequireConfig(gcmd *generate, gomod *goMod, podPath, localPkgPart string) (string, error) {
 	outAbs := filepath.Join(gcmd.OutputDir, podPath, localPkgPart)
 	for _, k := range gcmd.cfg.Require {
 		cmd := exec.Command("go")
@@ -171,7 +174,7 @@ func gomodrequire_config(gcmd *generate, gomod *goMod, podPath, localPkgPart str
 	return "", nil
 }
 
-func gomodrequire_local(gcmd *generate, gomod *goMod, podPath, localPkgPart string,
+func gomodrequireLocal(gcmd *generate, gomod *goMod, podPath, localPkgPart string,
 	// gitTagSemver map[string]map[int64]utils.Semvers, pseudo string,
 	nextSemvers map[string]string,
 ) (string, error) {
@@ -183,7 +186,7 @@ func gomodrequire_local(gcmd *generate, gomod *goMod, podPath, localPkgPart stri
 		you := strings.Split(dep.pkg.Pkg, "/")
 		for i := range me {
 			if i >= len(you) {
-				panic(fmt.Errorf("!!!!\n%s\n%s\n", gomod.pkg.Pkg, dep.pkg.Pkg))
+				panic(fmt.Errorf("%s\n%s", gomod.pkg.Pkg, dep.pkg.Pkg))
 			}
 			if me[i] != you[i] {
 				relPath = strings.Repeat("../", len(me)-i)
@@ -212,7 +215,7 @@ func gomodrequire_local(gcmd *generate, gomod *goMod, podPath, localPkgPart stri
 	return "", nil
 }
 
-func gomodrequire_tidy(gcmd *generate, gomod *goMod, podPath, localPkgPart string) (string, error) {
+func gomodrequireTidy(gcmd *generate, gomod *goMod, podPath, localPkgPart string) (string, error) {
 	outAbs := filepath.Join(gcmd.OutputDir, podPath, localPkgPart)
 	cmd := exec.Command("go")
 	cmd.Dir = outAbs
@@ -230,7 +233,7 @@ func gomodrequire_tidy(gcmd *generate, gomod *goMod, podPath, localPkgPart strin
 	return "", nil
 }
 
-func gomodrequire_version(gcmd *generate, gomod *goMod, podPath, localPkgPart string,
+func gomodrequireVersion(gcmd *generate, gomod *goMod, podPath, localPkgPart string,
 	// gitTagSemver map[string]map[int64]utils.Semvers, pseudo string,
 	nextSemvers map[string]string,
 ) (string, error) {
@@ -257,7 +260,7 @@ func gomodrequire_version(gcmd *generate, gomod *goMod, podPath, localPkgPart st
 	return "", nil
 }
 
-func update_next_semver(gcmd *generate, gomod *goMod, podPath, localPkgPart string,
+func updateNextSemver(gcmd *generate, gomod *goMod, podPath, localPkgPart string,
 	gitTagSemver map[string]map[int64]utils.Semvers, pseudo string,
 	nextSemvers map[string]string,
 ) (string, error) {
@@ -371,13 +374,13 @@ func mod4pkg(n2mod2 map[string]*goMod, pkgName string) (*goMod, bool) {
 		return mymod, ex
 	}
 	for {
-		if idx := strings.LastIndex(pkgName, "/"); idx == -1 {
-			return nil, false
-		} else {
+		if idx := strings.LastIndex(pkgName, "/"); idx > -1 {
 			pkgName = pkgName[:idx]
 			if mymod, ex := n2mod2[pkgName]; ex {
 				return mymod, ex
 			}
+		} else {
+			return nil, false
 		}
 	}
 }

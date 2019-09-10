@@ -7,6 +7,7 @@ import (
 
 	"github.com/wxio/godna/bumptag"
 	"github.com/wxio/godna/generate"
+	"github.com/wxio/godna/genmd"
 	"github.com/wxio/godna/pb/dna/config"
 	"github.com/wxio/godna/readfds"
 	"github.com/wxio/godna/regen"
@@ -54,6 +55,7 @@ func main() {
 			FieldConfigPath("./.dna-cfg.ptron", cfg)).
 		AddCommand(opts.New(bumptag.New()).Name("bumptag")).
 		AddCommand(opts.New(readfds.New()).Name("readfds")).
+		AddCommand(opts.New(genmd.New()).Name("gen-markdown")).
 		Parse()
 	if ro.Debug {
 		fmt.Printf("note manually set 'godna --logtostderr' to see logs")

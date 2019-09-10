@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/wxio/godna/pb/dna/config"
@@ -17,12 +18,13 @@ type generate struct {
 	debugger
 	cfg
 	OutputDir           string `opts:"mode=arg" help:"output directory eg ."`
+	PackagePatternMatch string `opts:"short=r" help:"regexp of go package name"`
 	StepAll             bool   `opts:"short=s" help:"run all steps (step-protoc, step-gomod-all, step-git-all)"`
 	StepProtoc          bool   `opts:"short=p" help:"run the protoc\n (default true)"`
-	StepGomodAll        bool   `opts:"short=m" help:"run all go mod steps. Overrides the individual steps (ie or'ed)"`
+	StepGomodAll        bool   `opts:"short=m" help:"run all go mod steps. Overrides the individual steps (ie or-ed)"`
 	StepGomodInit       bool   `help:"go mod init for all specified go modules.\nDoes not overwrite existing go.mod files.\nie containing\n\timport \"dna/store.v1.proto\";\n\toption (wxio.dna.store) = {\n\t\tgo_mod : true\n\t};\nstore.v1.proto usually stored in vendor/wxio"`
-	StepGomodCfg        bool   `help:"go mod edit -require <spec'ed in config>"`
-	StepGomodLocal      bool   `help:"need for local dev & 'tidy'.\ngo mod edit -replace <proto import>=../[../]*/<local code>"`
+	StepGomodCfg        bool   `help:"go mod edit -require <specified in config>"`
+	StepGomodLocal      bool   `help:"need for local dev & tidy.\ngo mod edit -replace <proto import>=../[../]*/<local code>"`
 	StepGomodTidy       bool   `help:"go mod tidy"`
 	StepGomodVersion    bool   `help:"go mod edit -dropreplace & -require for imported modules"`
 	StepGitAll          bool   `opts:"short=g" help:"git add, commit & tag"`
@@ -30,8 +32,16 @@ type generate struct {
 	StepGitAddCommit    bool   `help:"git add & commit"`
 	StepGitAddCommitTag bool   `help:"git add, commit & tag"`
 	//
-	stepFDS          bool
-	stepUpdateSemver bool
+	stepFDS             bool
+	stepUpdateSemver    bool
+	packagePatternMatch *regexp.Regexp
+}
+
+func (cmd generate) matchPackage(pkg string) bool {
+	if cmd.packagePatternMatch != nil {
+		return cmd.packagePatternMatch.MatchString(pkg)
+	}
+	return true
 }
 
 type generateFDS struct {
@@ -44,7 +54,8 @@ type debugger interface {
 	Debugf(format string, a ...interface{})
 }
 
-func New(cf *config.Config, de debugger) *generate {
+// New generate sub command
+func New(cf *config.Config, de debugger) interface{} {
 	return &generate{
 		debugger: de,
 		// StepProtoc: true,
@@ -53,14 +64,21 @@ func New(cf *config.Config, de debugger) *generate {
 	}
 }
 
-func NewFDS(cf *config.Config, de debugger) *generateFDS {
+// NewFDS generate file descriptor set sub command
+func NewFDS(cf *config.Config, de debugger) interface{} {
 	return &generateFDS{
 		debugger: de,
 		cfg:      cfg{cf},
 	}
 }
 
-func (cmd *generate) Run() error {
+// Run sub command
+func (cmd *generate) Run() (err error) {
+	if cmd.PackagePatternMatch != "" {
+		if cmd.packagePatternMatch, err = regexp.Compile(cmd.PackagePatternMatch); err != nil {
+			return fmt.Errorf("--package-pattern-match '%s' not a valid regexp err: %v", cmd.PackagePatternMatch, err)
+		}
+	}
 	if !(cmd.StepAll ||
 		cmd.StepProtoc ||
 		cmd.StepGomodAll ||
@@ -131,15 +149,12 @@ func (cmd *generate) Run() error {
 		cmd.StepGitAddCommit = true
 	}
 	//
-	var err error
 	cmd.cfg.SrcDir = os.ExpandEnv(cmd.cfg.SrcDir)
-	cmd.cfg.SrcDir, err = filepath.Abs(cmd.cfg.SrcDir)
-	if err != nil {
+	if cmd.cfg.SrcDir, err = filepath.Abs(cmd.cfg.SrcDir); err != nil {
 		return err
 	}
 	cmd.OutputDir = os.ExpandEnv(cmd.OutputDir)
-	cmd.OutputDir, err = filepath.Abs(cmd.OutputDir)
-	if err != nil {
+	if cmd.OutputDir, err = filepath.Abs(cmd.OutputDir); err != nil {
 		return err
 	}
 	gopkgF := func() GoPackages {
@@ -149,8 +164,16 @@ func (cmd *generate) Run() error {
 			// return err
 		}
 		for _, pkg := range gopkg.Pkgs {
-			imps := collect(pkg, "", map[string]Void{})
+			imps := collect(pkg, "", map[string]Void{pkg.Pkg: Void{}})
 			pkg.Imports = *(imps.(*goPkgs2By))
+			padding := strings.Repeat(" ", gopkg.MaxPkgLen-len(pkg.Pkg))
+			pad2 := strings.Repeat(" ", gopkg.MaxRelDirLen-len(pkg.RelDir))
+			fmt.Printf("package: %s%s %s %sfiles: %s", pkg.Pkg, padding, pkg.RelDir, pad2, pkg.Files)
+			// fmt.Printf("  files: %v\n", pkg.Files)
+			if len(pkg.Imports) > 0 {
+				fmt.Printf(" import: %v", pkg.Imports)
+			}
+			fmt.Printf("\n")
 		}
 		// n := goPkgs2By(gopkg.Pkgs)
 		// sort.Sort(n)
@@ -170,7 +193,7 @@ func (cmd *generate) Run() error {
 	gopkg := gopkgF()
 	protocItF := func() ProtocIt {
 		protocIt := &ProtocIt{goPkgs: gopkg}
-		if msg, err := protocIt.Process(cmd); err != nil {
+		if msg, err := protocIt.process(cmd); err != nil {
 			fmt.Printf("protoc error msg\n----\n%s\n----\n", msg)
 			panic(err)
 			// return err
@@ -181,7 +204,7 @@ func (cmd *generate) Run() error {
 	//
 	goModItF := func() GoModIt {
 		goModIt := &GoModIt{protocIt: protocIt}
-		if msg, err := goModIt.Process(cmd); err != nil {
+		if msg, err := goModIt.process(cmd); err != nil {
 			fmt.Printf("goModIt error msg\n----\n%s\n----\n", msg)
 			panic(err)
 			// return err
@@ -237,7 +260,7 @@ func (cmd *generateFDS) Run() error {
 	gopkg := gopkgF()
 	protocItF := func() ProtocFdsIt {
 		protocIt := &ProtocFdsIt{goPkgs: gopkg}
-		if msg, err := protocIt.Process(cmd); err != nil {
+		if msg, err := protocIt.process(cmd); err != nil {
 			fmt.Printf("protoc error msg\n----\n%s\n----\n", msg)
 			panic(err)
 			// return err
