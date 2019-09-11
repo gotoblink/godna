@@ -39,12 +39,12 @@ func (proc *GoModIt) process(cmd *generate) (string, error) {
 			return msg, err
 		}
 		nextSemvers := map[string]string{}
-		gitTagSemver := map[string]map[int64]utils.Semvers{}
-		pseudoVerion := ""
+		var gitTagSemver map[string]map[int64]utils.Semvers
+		var pseudoVerion string
 		if cmd.stepUpdateSemver {
 			gitTagSemver, pseudoVerion, err = gitGetTagSemver(cmd)
 			if err != nil {
-				return "", err
+				cmd.Debugf("Error getting semvers (git tags). err: %v", err)
 			}
 		}
 		//
@@ -72,62 +72,73 @@ func (proc *GoModIt) process(cmd *generate) (string, error) {
 							return msg, err
 						}
 					}
-					if cmd.StepGomodLocal {
-						if msg, err := gomodrequireLocal(cmd, gomod, pod.Path, localPkgPart,
-							// gitTagSemver, pseudoVerion,
-							nextSemvers); err != nil {
-							return msg, err
-						}
-					}
-					if cmd.StepGomodTidy {
-						if msg, err := gomodrequireTidy(cmd, gomod, pod.Path, localPkgPart); err != nil {
-							return msg, err
-						}
-					}
-					if cmd.StepGomodVersion {
-						if msg, err := gomodrequireVersion(cmd, gomod, pod.Path, localPkgPart,
-							// gitTagSemver, pseudoVerion,
-							nextSemvers); err != nil {
-							return msg, err
-						}
-					}
-					if cmd.stepUpdateSemver {
-						if msg, err := updateNextSemver(cmd, gomod, pod.Path, localPkgPart,
-							gitTagSemver, pseudoVerion,
-							nextSemvers); err != nil {
-							return msg, err
-						}
-						base := gomod.pkg.Pkg[len(cmd.cfg.GoPackagePrefix)+1:]
-						sem := nextSemvers[base]
-						gomod.version = sem
-					}
-					//
-					if len(gomod.dirty) != 0 {
-						if cmd.StepGitAdd {
-							if msg, err := git_add(cmd, gomod, pod.Path, localPkgPart); // gitTagSemver, pseudoVerion,
-							err != nil {
+					if gitTagSemver == nil {
+						if cmd.StepGomodLocal {
+							if msg, err := gomodrequireLocalOnly(cmd, gomod, pod.Path, localPkgPart); err != nil {
 								return msg, err
 							}
 						}
-						if cmd.StepGitAddCommit {
-							if msg, err := git_commit(cmd, gomod, pod.Path, localPkgPart,
-								commitMsg,
-							); err != nil {
+						if cmd.StepGomodTidy {
+							if msg, err := gomodrequireTidy(cmd, gomod, pod.Path, localPkgPart); err != nil {
 								return msg, err
 							}
 						}
-						if cmd.StepGitAddCommitTag {
-							if msg, err := git_tag(cmd, gomod, pod.Path, localPkgPart,
-								commitMsg,
-							); err != nil {
+					} else {
+						if cmd.StepGomodLocal {
+							if msg, err := gomodrequireLocalRemote(cmd, gomod, pod.Path, localPkgPart, nextSemvers); err != nil {
 								return msg, err
+							}
+						}
+						if cmd.StepGomodTidy {
+							if msg, err := gomodrequireTidy(cmd, gomod, pod.Path, localPkgPart); err != nil {
+								return msg, err
+							}
+						}
+						if cmd.StepGomodVersion {
+							if msg, err := gomodrequireRemoteOnly(cmd, gomod, pod.Path, localPkgPart, nextSemvers); err != nil {
+								return msg, err
+							}
+						}
+						if cmd.stepUpdateSemver {
+							if msg, err := updateNextSemver(cmd, gomod, pod.Path, localPkgPart,
+								gitTagSemver, pseudoVerion,
+								nextSemvers); err != nil {
+								return msg, err
+							}
+							base := gomod.pkg.Pkg[len(cmd.cfg.GoPackagePrefix)+1:]
+							sem := nextSemvers[base]
+							gomod.version = sem
+						}
+						//
+						if len(gomod.dirty) != 0 {
+							if cmd.StepGitAdd {
+								if msg, err := git_add(cmd, gomod, pod.Path, localPkgPart); // gitTagSemver, pseudoVerion,
+								err != nil {
+									return msg, err
+								}
+							}
+							if cmd.StepGitAddCommit {
+								if msg, err := git_commit(cmd, gomod, pod.Path, localPkgPart,
+									commitMsg,
+								); err != nil {
+									return msg, err
+								}
+							}
+							if cmd.StepGitAddCommitTag {
+								if msg, err := git_tag(cmd, gomod, pod.Path, localPkgPart,
+									commitMsg,
+								); err != nil {
+									return msg, err
+								}
 							}
 						}
 					}
 				}
 			}
 		}
-		//
+		if gitTagSemver == nil {
+			return "WARNING destination was not a git repo - suitable for local developer only - don't push it", nil
+		}
 	}
 	return "", nil
 }
@@ -174,8 +185,43 @@ func gomodrequireConfig(gcmd *generate, gomod *goMod, podPath, localPkgPart stri
 	return "", nil
 }
 
-func gomodrequireLocal(gcmd *generate, gomod *goMod, podPath, localPkgPart string,
-	// gitTagSemver map[string]map[int64]utils.Semvers, pseudo string,
+func gomodrequireLocalOnly(gcmd *generate, gomod *goMod, podPath, localPkgPart string) (string, error) {
+	outAbs := filepath.Join(gcmd.OutputDir, podPath, localPkgPart)
+	me := strings.Split(gomod.pkg.Pkg, "/")
+	for _, dep := range gomod.imp {
+		relPath := ""
+		youbit := ""
+		you := strings.Split(dep.pkg.Pkg, "/")
+		for i := range me {
+			if i >= len(you) {
+				panic(fmt.Errorf("%s\n%s", gomod.pkg.Pkg, dep.pkg.Pkg))
+			}
+			if me[i] != you[i] {
+				relPath = strings.Repeat("../", len(me)-i)
+				youbit = strings.Join(you[i:], "/")
+				break
+			}
+		}
+		cmd := exec.Command("go")
+		cmd.Dir = outAbs
+		cmd.Env = append(os.Environ(), "GO111MODULE=on")
+		base := dep.pkg.Pkg[len(gcmd.cfg.GoPackagePrefix)+1:]
+		gcmd.Debugf("  gomodrequire_version LOCAL ONLY key: %s pkg: %s\n", base, dep.pkg.Pkg)
+		args := []string{
+			"mod",
+			"edit",
+			"-replace=" + dep.pkg.Pkg + "=" + relPath + youbit,
+		}
+		cmd.Args = append(cmd.Args, args...)
+		gcmd.Debugf("%v\n", cmd.Args)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			return string(out), err
+		}
+	}
+	return "", nil
+}
+
+func gomodrequireLocalRemote(gcmd *generate, gomod *goMod, podPath, localPkgPart string,
 	nextSemvers map[string]string,
 ) (string, error) {
 	outAbs := filepath.Join(gcmd.OutputDir, podPath, localPkgPart)
@@ -199,7 +245,7 @@ func gomodrequireLocal(gcmd *generate, gomod *goMod, podPath, localPkgPart strin
 		cmd.Env = append(os.Environ(), "GO111MODULE=on")
 		base := dep.pkg.Pkg[len(gcmd.cfg.GoPackagePrefix)+1:]
 		sem := nextSemvers[base]
-		gcmd.Debugf("  gomodrequire_version key: %s ver: %s  pkg: %s\n", base, sem, dep.pkg.Pkg)
+		gcmd.Debugf("  gomodrequire_version key: %s ver: '%s'  pkg: %s\n", base, sem, dep.pkg.Pkg)
 		args := []string{
 			"mod",
 			"edit",
@@ -233,8 +279,7 @@ func gomodrequireTidy(gcmd *generate, gomod *goMod, podPath, localPkgPart string
 	return "", nil
 }
 
-func gomodrequireVersion(gcmd *generate, gomod *goMod, podPath, localPkgPart string,
-	// gitTagSemver map[string]map[int64]utils.Semvers, pseudo string,
+func gomodrequireRemoteOnly(gcmd *generate, gomod *goMod, podPath, localPkgPart string,
 	nextSemvers map[string]string,
 ) (string, error) {
 	outAbs := filepath.Join(gcmd.OutputDir, podPath, localPkgPart)

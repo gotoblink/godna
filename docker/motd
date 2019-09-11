@@ -1,0 +1,21 @@
+===================================================================
+= GoDNA Docker container, cli for transcribing DNA.               =
+= aka monorepo of protos to Golang                                =
+=                                                                 =
+= https://github.com/wxio/godna                                   =
+===================================================================
+docker run --rm -it  --user `id -u`:`id -g` \
+    -e GOPRIVATE=${GOPRIVATE} \
+    -v ~/.ssh:${HOME}/.ssh:ro \
+    -v /etc/passwd:/etc/passwd:ro -v /etc/group:/etc/group:ro \
+    -v ${HOME}/.cache:${HOME}/.cache -v ${HOME}/go/pkg:${HOME}/go/pkg \
+    -v `pwd`/.gitconfig.global:/etc/gitconfig \
+    -v `pwd`:/dna \
+    -v `pwd`/../godna:/dna-dst \
+    -w /dna/ wxio/godna:latest bash
+# godna <tab><tab>
+## example local development command
+# godna --debug --logtostderr generate --step-protoc --step-gomod-all /dna-dst
+===================================================================
+=                                                                 =
+===================================================================

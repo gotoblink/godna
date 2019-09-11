@@ -46,11 +46,7 @@ RUN git clone https://github.com/envoyproxy/protoc-gen-validate.git && \
     go install
 #
 # godna
-ENV GODNA_VER v1.14.0
-RUN git clone https://github.com/wxio/godna.git  && \
-    cd godna && \
-    git checkout $GODNA_VER && \
-    go install -ldflags  "-X main.version=$GODNA_VER -X main.commit=$(git log --pretty=format:\"%H\" -1) -X main.date=$(git log --pretty=format:\"%ad\" -1 --date=format:'%F-%T%z')"
+COPY godna /go/bin/godna
 
 # Package
 FROM golang:1.13rc2

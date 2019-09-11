@@ -204,15 +204,19 @@ func (cmd *generate) Run() (err error) {
 	//
 	goModItF := func() GoModIt {
 		goModIt := &GoModIt{protocIt: protocIt}
-		if msg, err := goModIt.process(cmd); err != nil {
+		if msg, err := goModIt.process(cmd); err == nil {
+			for _, gomod := range goModIt.gomods {
+				padding := strings.Repeat(" ", goModIt.protocIt.goPkgs.MaxPkgLen-len(gomod.pkg.Pkg))
+				fmt.Printf("gomod: %s%s subpkg #%v imports #%v %s dirty %v\n",
+					gomod.pkg.Pkg, padding, len(gomod.subpkg), len(gomod.imp), gomod.version, len(gomod.dirty) != 0)
+			}
+			if msg != "" {
+				fmt.Printf("## %s\n", msg)
+			}
+		} else {
 			fmt.Printf("goModIt error msg\n----\n%s\n----\n", msg)
 			panic(err)
 			// return err
-		}
-		for _, gomod := range goModIt.gomods {
-			padding := strings.Repeat(" ", goModIt.protocIt.goPkgs.MaxPkgLen-len(gomod.pkg.Pkg))
-			fmt.Printf("gomod: %s%s subpkg #%v imports #%v %s dirty %v\n",
-				gomod.pkg.Pkg, padding, len(gomod.subpkg), len(gomod.imp), gomod.version, len(gomod.dirty) != 0)
 		}
 		return *goModIt
 	}

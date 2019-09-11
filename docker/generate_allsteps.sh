@@ -3,16 +3,12 @@
 set -e
 set -x
 
-if [ -f .gitconfig.global ]; then
-    git config --global include.path "$PWD/.gitconfig.global"
-fi
-
 GIT_DESC=`git describe --tags --dirty --always`
 GIT_SRC=`git remote get-url origin`
 
 git clone $* /dna-dst
 rm -r /dna-dst/*
-godna regen /dna-dst
+godna generate --step-all /dna-dst
 
 cd /dna-dst
 GIT_NEXT_TAG=`godna bumptag ./`
