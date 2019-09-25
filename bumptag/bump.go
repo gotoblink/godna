@@ -30,13 +30,42 @@ func (cmd *Bump) Run() error {
 	if len(sems) == 0 {
 		return fmt.Errorf("no current semvers")
 	}
+	// if branch get previous tag and bump patch
+
 	sem := sems[0]
+
 	sem.Minor += 1
 	fmt.Printf("%v\n", sem)
 	return nil
 }
 
 var semverRE = regexp.MustCompile(`^v(\d+)\.(\d+)\.(\d+)$`)
+
+func getCurrentBranch(outdir string) (string, error) {
+	cmd := exec.Command("git")
+	cmd.Dir = outdir
+	args := []string{"rev-parse", "--abbrev-ref", "HEAD"}
+	cmd.Args = append(cmd.Args, args...)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		log.Warningf("err: %v out:%v", err, string(out))
+		return "", err
+	}
+	return string(out), nil
+}
+
+func getLastTag(outdir string) (string, error) {
+	cmd := exec.Command("git")
+	cmd.Dir = outdir
+	args := []string{"describe", "--tags"}
+	cmd.Args = append(cmd.Args, args...)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		log.Warningf("err: %v out:%v", err, string(out))
+		return "", err
+	}
+	return string(out), nil
+}
 
 func getSemTags(outdir string) (utils.Semvers, error) {
 	ret := utils.Semvers{}
