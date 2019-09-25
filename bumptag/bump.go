@@ -4,10 +4,12 @@ import (
 	"bufio"
 	"bytes"
 	"fmt"
+	"os"
 	"os/exec"
 	"regexp"
 	"sort"
 	"strconv"
+	"strings"
 
 	log "github.com/golang/glog"
 
@@ -15,7 +17,8 @@ import (
 )
 
 type Bump struct {
-	OutputDir string `opts:"mode=arg" help:"output directory eg ."`
+	OutputDir       string   `opts:"mode=arg" help:"output directory eg ."`
+	BranchMinorBump []string `help:"minor bump for these branches, else bumps patch (default [master])"`
 }
 
 func New() *Bump {
@@ -23,23 +26,29 @@ func New() *Bump {
 }
 
 func (cmd *Bump) Run() error {
-	sems, err := getSemTags(cmd.OutputDir)
+	if len(cmd.BranchMinorBump) == 0 {
+		cmd.BranchMinorBump = []string{"master"}
+
+	}
+	branch, err := getCurrentBranch(cmd.OutputDir)
 	if err != nil {
 		return err
 	}
-	if len(sems) == 0 {
-		return fmt.Errorf("no current semvers")
+	curTag, err := getLastTag(cmd.OutputDir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "no current tag using 0.0.0 as current err:%v", err)
 	}
-	// if branch get previous tag and bump patch
-
-	sem := sems[0]
-
-	sem.Minor += 1
-	fmt.Printf("%v\n", sem)
+	for _, t := range cmd.BranchMinorBump {
+		if branch == t {
+			curTag.Minor++
+			fmt.Printf("%v\n", curTag)
+			return nil
+		}
+	}
+	curTag.Patch++
+	fmt.Printf("%v\n", curTag)
 	return nil
 }
-
-var semverRE = regexp.MustCompile(`^v(\d+)\.(\d+)\.(\d+)$`)
 
 func getCurrentBranch(outdir string) (string, error) {
 	cmd := exec.Command("git")
@@ -51,10 +60,13 @@ func getCurrentBranch(outdir string) (string, error) {
 		log.Warningf("err: %v out:%v", err, string(out))
 		return "", err
 	}
-	return string(out), nil
+	line := strings.TrimSpace(string(out))
+	return line, nil
 }
 
-func getLastTag(outdir string) (string, error) {
+var describeRE = regexp.MustCompile(`^v(\d+)\.(\d+)\.(\d+)(-\d+-[0-9a-z]+.*)?`)
+
+func getLastTag(outdir string) (utils.Semver, error) {
 	cmd := exec.Command("git")
 	cmd.Dir = outdir
 	args := []string{"describe", "--tags"}
@@ -62,10 +74,21 @@ func getLastTag(outdir string) (string, error) {
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		log.Warningf("err: %v out:%v", err, string(out))
-		return "", err
+		return utils.Semver{}, err
 	}
-	return string(out), nil
+	line := strings.TrimSpace(string(out))
+	match := describeRE.FindStringSubmatch(line)
+	if len(match) == 0 {
+		return utils.Semver{}, fmt.Errorf("tag didn't look like a semver out: '%s'", line)
+	}
+	ma, _ := strconv.ParseInt(match[1], 10, 64)
+	mi, _ := strconv.ParseInt(match[2], 10, 64)
+	pa, _ := strconv.ParseInt(match[3], 10, 64)
+	sem := utils.Semver{Major: ma, Minor: mi, Patch: pa}
+	return sem, nil
 }
+
+var semverRE = regexp.MustCompile(`^v(\d+)\.(\d+)\.(\d+)$`)
 
 func getSemTags(outdir string) (utils.Semvers, error) {
 	ret := utils.Semvers{}
