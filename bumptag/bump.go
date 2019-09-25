@@ -16,15 +16,18 @@ import (
 	"github.com/wxio/godna/internal/utils"
 )
 
+// Bump subcommdnad
 type Bump struct {
 	OutputDir       string   `opts:"mode=arg" help:"output directory eg ."`
 	BranchMinorBump []string `help:"minor bump for these branches, else bumps patch (default [master])"`
 }
 
+// New Bump constructor
 func New() *Bump {
 	return &Bump{}
 }
 
+// Run subcommand
 func (cmd *Bump) Run() error {
 	if len(cmd.BranchMinorBump) == 0 {
 		cmd.BranchMinorBump = []string{"master"}
@@ -41,6 +44,7 @@ func (cmd *Bump) Run() error {
 	for _, t := range cmd.BranchMinorBump {
 		if branch == t {
 			curTag.Minor++
+			curTag.Patch = 0
 			fmt.Printf("%v\n", curTag)
 			return nil
 		}
