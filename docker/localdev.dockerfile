@@ -1,5 +1,5 @@
 # Build
-FROM golang:1.13rc2 as builder
+FROM golang:1.13 as builder
 #
 # protoc
 ENV PROTOC_VERSION 3.9.0
@@ -49,7 +49,7 @@ RUN git clone https://github.com/envoyproxy/protoc-gen-validate.git && \
 COPY godna /go/bin/godna
 
 # Package
-FROM golang:1.13rc2
+FROM golang:1.13
 #
 COPY --from=builder /go/bin/* /go/bin/
 COPY --from=builder /go/include /go/include
@@ -59,7 +59,7 @@ RUN echo 'complete -C /go/bin/godna godna' >> /etc/bash.bashrc
 
 RUN echo '[ ! -z "$TERM" -a -r /etc/motd ] && cat /etc/motd' >> /etc/bash.bashrc
 COPY motd /etc/motd
-ADD entrypoint.sh /entrypoint.sh
+# ADD entrypoint.sh /entrypoint.sh
 ADD generate_allsteps.sh /generate_allsteps.sh
 
 # ENTRYPOINT [ "/entrypoint.sh" ]

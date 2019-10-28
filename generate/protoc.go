@@ -41,7 +41,8 @@ func (proc *ProtocIt) process(cmd *generate) (string, error) {
 			fmt.Printf("protoc %s %s\n", pkg.Pkg, pkg.Files)
 			for _, pod := range cmd.cfg.PluginOutputDir {
 				for _, gen := range pod.Generator {
-					outAbs := filepath.Join(cmd.OutputDir, pod.Path, pkg.Pkg[len(cmd.cfg.GetGoPackagePrefix()):])
+					// outAbs := filepath.Join(cmd.OutputDir, pod.Path, pkg.Pkg[len(cmd.cfg.GetGoPackagePrefix()):])
+					outAbs := cmd.OutputDir
 					if err := os.MkdirAll(outAbs, os.ModePerm); err != nil {
 						return "err: mkdir -p " + outAbs, err
 					}
@@ -77,7 +78,7 @@ func protoc(in goPkg2, genCmd *generate, outAbs string, pod *config.Config_Plugi
 	plg := protocGenerator(outAbs, gen)
 	args := []string{plg}
 	// args = append(args, "-I..")
-	args = append(args, "-I"+in.RelDir)
+	// args = append(args, "-I"+in.RelDir)
 	for _, inc := range genCmd.cfg.Includes {
 		incAbs, err := filepath.Abs(inc)
 		if err != nil {
@@ -86,7 +87,7 @@ func protoc(in goPkg2, genCmd *generate, outAbs string, pod *config.Config_Plugi
 		args = append(args, "-I"+incAbs)
 	}
 	for _, fi := range in.Files {
-		args = append(args, fi)
+		args = append(args, filepath.Join(in.RelDir, fi))
 	}
 	cmd.Args = append(cmd.Args, args...)
 	cmd.Dir = genCmd.cfg.SrcDir

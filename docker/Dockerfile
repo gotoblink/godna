@@ -1,5 +1,5 @@
 # Build
-FROM golang:1.13rc2 as builder
+FROM golang:1.13 as builder
 #
 # protoc
 ENV PROTOC_VERSION 3.9.0
@@ -46,14 +46,14 @@ RUN git clone https://github.com/envoyproxy/protoc-gen-validate.git && \
     go install
 #
 # godna
-ENV GODNA_VER v1.14.0
+ENV GODNA_VER v1.15.0
 RUN git clone https://github.com/wxio/godna.git  && \
     cd godna && \
     git checkout $GODNA_VER && \
     go install -ldflags  "-X main.version=$GODNA_VER -X main.commit=$(git log --pretty=format:\"%H\" -1) -X main.date=$(git log --pretty=format:\"%ad\" -1 --date=format:'%F-%T%z')"
 
 # Package
-FROM golang:1.13rc2
+FROM golang:1.13
 #
 COPY --from=builder /go/bin/* /go/bin/
 COPY --from=builder /go/include /go/include
@@ -63,7 +63,7 @@ RUN echo 'complete -C /go/bin/godna godna' >> /etc/bash.bashrc
 
 RUN echo '[ ! -z "$TERM" -a -r /etc/motd ] && cat /etc/motd' >> /etc/bash.bashrc
 COPY motd /etc/motd
-ADD entrypoint.sh /entrypoint.sh
+# ADD entrypoint.sh /entrypoint.sh
 ADD generate_allsteps.sh /generate_allsteps.sh
 
 # ENTRYPOINT [ "/entrypoint.sh" ]
