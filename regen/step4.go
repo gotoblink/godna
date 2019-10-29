@@ -15,8 +15,8 @@ import (
 	log "github.com/golang/glog"
 	"github.com/golangq/q"
 
+	"github.com/wxio/godna/config"
 	"github.com/wxio/godna/internal/utils"
-	"github.com/wxio/godna/pb/dna/config"
 )
 
 func (proc *Step4) Process(rootOutDir string, cfg *config.Config) (string, error) {
@@ -212,12 +212,12 @@ func protocGenerator(gen *config.Config_Generator) string {
 		}
 		name = name + strings.Join(args, ",") + ":"
 		return name
-	case *config.Config_Generator_Plugin_Gotag:
-		name := "--gotag_out="
-		args := []string{}
-		args = append(args, "paths="+strings.ToLower(plg.Gotag.Paths.String()))
-		name = name + strings.Join(args, ",") + ":"
-		return name
+	// case *config.Config_Generator_Plugin_Gotag:
+	// 	name := "--gotag_out="
+	// 	args := []string{}
+	// 	args = append(args, "paths="+strings.ToLower(plg.Gotag.Paths.String()))
+	// 	name = name + strings.Join(args, ",") + ":"
+	// 	return name
 	default:
 		fmt.Printf("unknown plugin %T\n", plg)
 		os.Exit(2)

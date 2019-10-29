@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/wxio/godna/pb/dna/config"
+	"github.com/wxio/godna/config"
 )
 
 func (proc *Step2) Process(rootOutDir string, cfg *config.Config) (string, error) {

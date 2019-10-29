@@ -10,7 +10,7 @@ import (
 
 	"github.com/golangq/q"
 
-	"github.com/wxio/godna/pb/dna/config"
+	"github.com/wxio/godna/config"
 )
 
 func (proc *ProtocFdsIt) process(cmd *generateFDS) (string, error) {
@@ -174,12 +174,12 @@ func protocGenerator(outdir string, gen *config.Config_Generator) string {
 		}
 		name = name + strings.Join(args, ",") + ":" + outdir
 		return name
-	case *config.Config_Generator_Plugin_Gotag:
-		name := "--gotag_out="
-		args := []string{}
-		args = append(args, "paths="+strings.ToLower(plg.Gotag.Paths.String()))
-		name = name + strings.Join(args, ",") + ":" + outdir
-		return name
+	// case *config.Config_Generator_Plugin_Gotag:
+	// 	name := "--gotag_out="
+	// 	args := []string{}
+	// 	args = append(args, "paths="+strings.ToLower(plg.Gotag.Paths.String()))
+	// 	name = name + strings.Join(args, ",") + ":" + outdir
+	// 	return name
 	case *config.Config_Generator_Plugin_Validate:
 		name := "--validate_out="
 		args := []string{}

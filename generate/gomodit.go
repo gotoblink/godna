@@ -15,9 +15,9 @@ import (
 	log "github.com/golang/glog"
 	"github.com/golangq/q"
 
+	"github.com/wxio/godna/config"
 	"github.com/wxio/godna/internal/utils"
-	"github.com/wxio/godna/pb/dna/config"
-	"github.com/wxio/godna/pb/extensions/store"
+	"github.com/wxio/godna/store"
 
 	"github.com/golang/protobuf/proto"
 	"github.com/golang/protobuf/protoc-gen-go/descriptor"

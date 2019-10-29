@@ -1,7 +1,8 @@
-src_dir    : "../dna"
+src_dir    : "../dna/store/wxio"
 go_package_prefix : "github.com/wxio/godna"
 includes  : [
 	"../dna/store",
+	"../dna/store/wxio",
 	"../dna/vendor/googleapis",
 	"../dna/vendor/grpc_gateway"
 ]

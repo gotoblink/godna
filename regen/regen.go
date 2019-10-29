@@ -4,7 +4,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/wxio/godna/pb/dna/config"
+	"github.com/wxio/godna/config"
 )
 
 type Regen struct {

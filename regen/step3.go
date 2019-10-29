@@ -9,8 +9,8 @@ import (
 
 	"github.com/golangq/q"
 
+	"github.com/wxio/godna/config"
 	"github.com/wxio/godna/internal/utils"
-	"github.com/wxio/godna/pb/dna/config"
 )
 
 func (proc *Step3) Process(rootOutDir string, cfg *config.Config) (string, error) {

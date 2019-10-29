@@ -6,8 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/wxio/godna/pb/extensions/store"
-	_ "github.com/wxio/godna/pb/extensions/store"
+	"github.com/wxio/godna/store"
 
 	"github.com/golang/protobuf/proto"
 	"github.com/golang/protobuf/protoc-gen-go/descriptor"

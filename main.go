@@ -8,7 +8,7 @@ import (
 	"github.com/wxio/godna/bumptag"
 	"github.com/wxio/godna/generate"
 	"github.com/wxio/godna/genmd"
-	"github.com/wxio/godna/pb/dna/config"
+	"github.com/wxio/godna/config"
 	"github.com/wxio/godna/readfds"
 	"github.com/wxio/godna/regen"
 

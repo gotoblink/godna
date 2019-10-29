@@ -59,7 +59,7 @@ func sortgoPkgs2By(in goPkgs2By) goPkgs2By {
 	out := goPkgs2By{}
 	has := map[string]Void{}
 	i := 0
-	max := len(in) * len(in)
+	max := len(in)*len(in) + 1
 	for {
 		i++
 		if i > max {
