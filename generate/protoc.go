@@ -179,15 +179,15 @@ func protocGenerator(outdir string, gen *config.Config_Generator) string {
 		args = append(args, "paths="+strings.ToLower(plg.Gotag.Paths.String()))
 		name = name + strings.Join(args, ",") + ":" + outdir
 		return name
-	case *config.Config_Generator_Plugin_Validate:
-		name := "--validate_out="
-		args := []string{}
-		args = append(args, "paths="+strings.ToLower(plg.Validate.Paths.String()))
-		if plg.Validate.Lang != 0 {
-			args = append(args, "lang="+strings.ToLower(plg.Validate.Lang.String()))
-		}
-		name = name + strings.Join(args, ",") + ":" + outdir
-		return name
+	// case *config.Config_Generator_Plugin_Validate:
+	// 	name := "--validate_out="
+	// 	args := []string{}
+	// 	args = append(args, "paths="+strings.ToLower(plg.Validate.Paths.String()))
+	// 	if plg.Validate.Lang != 0 {
+	// 		args = append(args, "lang="+strings.ToLower(plg.Validate.Lang.String()))
+	// 	}
+	// 	name = name + strings.Join(args, ",") + ":" + outdir
+	// 	return name
 	default:
 		fmt.Printf("!!!\nunknown plugin %T\n", plg)
 		os.Exit(2)

@@ -7,17 +7,17 @@ import (
 	"path/filepath"
 
 	"github.com/wxio/godna/pb/extensions/store"
-	_ "github.com/wxio/godna/pb/extensions/store"
 
-	"github.com/golang/protobuf/proto"
-	"github.com/golang/protobuf/protoc-gen-go/descriptor"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/descriptorpb"
 )
 
 type readfds struct {
 	SrcDir string `opts:"mode=arg" help:"source directory of file descriptor sets or '-' for stdin"`
 }
 
-func New() *readfds {
+// New constructor
+func New() interface{} {
 	return &readfds{}
 }
 
@@ -48,7 +48,7 @@ func (cmd *readfds) Run() error {
 			return err
 		}
 	}
-	fds := &descriptor.FileDescriptorSet{}
+	fds := &descriptorpb.FileDescriptorSet{}
 	err = proto.Unmarshal(buf, fds)
 	if err != nil {
 		return err
@@ -57,9 +57,7 @@ func (cmd *readfds) Run() error {
 	for _, fdp := range fds.File {
 		// options := fmt.Sprintf("%v\n", fdp.Options)
 		// if strings.Contains(options, "[wxio.dna.store]:<go_mod:true >") {
-		storish, err := proto.GetExtension(fdp.Options, store.E_Store)
-		if err != nil {
-		}
+		storish := proto.GetExtension(fdp.Options, store.E_Store)
 		if storish != nil {
 			eStore := storish.(*store.Store)
 			fmt.Printf("---%v--- %s\n", eStore.GoMod, *fdp.Options.GoPackage)

@@ -19,8 +19,9 @@ import (
 	"github.com/wxio/godna/pb/dna/config"
 	"github.com/wxio/godna/pb/extensions/store"
 
-	"github.com/golang/protobuf/proto"
-	"github.com/golang/protobuf/protoc-gen-go/descriptor"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/descriptorpb"
+	// "github.com/golang/protobuf/protoc-gen-go/descriptor"
 )
 
 func (proc *GoModIt) process(cmd *generate) (string, error) {
@@ -341,7 +342,7 @@ func updateNextSemver(gcmd *generate, gomod *goMod, podPath, localPkgPart string
 }
 
 func (proc *GoModIt) collectModules(cmd *generate) (string, error) {
-	fds := &descriptor.FileDescriptorSet{}
+	fds := &descriptorpb.FileDescriptorSet{}
 	err := proto.Unmarshal(proc.protocIt.FileDescriptorSet, fds)
 	if err != nil {
 		return "", err
@@ -353,9 +354,9 @@ func (proc *GoModIt) collectModules(cmd *generate) (string, error) {
 		goPkg := proc.protocIt.goPkgs.name2goPkg2[*fdp.Options.GoPackage]
 		padding := strings.Repeat(" ", proc.protocIt.goPkgs.MaxPkgLen-len(goPkg.Pkg))
 		cmd.Debugf("%s%s", *fdp.Options.GoPackage, padding)
-		storish, _ := proto.GetExtension(fdp.Options, store.E_Store)
+		storish := proto.GetExtension(fdp.Options, store.E_Store)
 		// if err != nil {
-		// }
+		// }``
 		if storish != nil {
 			eStore := storish.(*store.Store)
 			if eStore.GoMod {
