@@ -1,5 +1,5 @@
 # Build
-FROM golang:1.13rc2 as builder
+FROM golang:1.14 as builder
 #
 # protoc
 ENV PROTOC_VERSION 3.9.0
