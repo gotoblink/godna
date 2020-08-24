@@ -63,8 +63,6 @@ RUN echo 'complete -C /go/bin/godna godna' >> /etc/bash.bashrc
 
 RUN echo '[ ! -z "$TERM" -a -r /etc/motd ] && cat /etc/motd' >> /etc/bash.bashrc
 COPY motd /etc/motd
-ADD entrypoint.sh /entrypoint.sh
 ADD generate_allsteps.sh /generate_allsteps.sh
 
-# ENTRYPOINT [ "/entrypoint.sh" ]
 CMD [ "/generate_allsteps.sh" ]
